@@ -1,0 +1,9 @@
+portable/
+Settings/
+Logs/
+Backups/
+*.zip
+*.user
+*.suo
+bin/
+obj/
