@@ -47,6 +47,7 @@ namespace NvdaAddonSync
             lastStartupRegistrationSetting = settings.RunAtStartup;
             syncEngine = new SyncEngine();
             syncEngine.Message += AddLog;
+            AddonPackService.Message += AddLog;
 
             syncDebounceTimer = new System.Windows.Forms.Timer();
             syncDebounceTimer.Interval = 1500;
@@ -218,6 +219,10 @@ namespace NvdaAddonSync
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Validate settings", null, delegate { ValidateSettings(); FocusLog(); }));
 
+            var addonsMenu = new ToolStripMenuItem("&Add-ons");
+            addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Export add-on pack...", null, delegate { ExportAddonPack(); }));
+            addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Install local add-ons to secondaries...", null, delegate { InstallLocalAddons(); }));
+
             var optionsMenu = new ToolStripMenuItem("&Options");
             var preferencesItem = new ToolStripMenuItem("&Preferences...", null, delegate { OpenPreferences(); });
             preferencesItem.ShortcutKeys = Keys.Control | Keys.Oemcomma;
@@ -245,6 +250,7 @@ namespace NvdaAddonSync
             helpMenu.DropDownItems.Add(new ToolStripMenuItem("&About NVDA Sync", null, delegate { ShowAbout(); }));
 
             menu.Items.Add(foldersMenu);
+            menu.Items.Add(addonsMenu);
             menu.Items.Add(optionsMenu);
             menu.Items.Add(helpMenu);
             return menu;
@@ -951,7 +957,7 @@ namespace NvdaAddonSync
             var cancellation = syncCancellation;
             if (cancellation != null && !cancellation.IsCancellationRequested)
             {
-                AddLog("Cancelling sync...");
+                AddLog("Cancelling current operation...");
                 SetStatus("Cancelling");
                 cancellation.Cancel();
             }
@@ -1009,6 +1015,122 @@ namespace NvdaAddonSync
                 }
                 File.WriteAllText(dialog.FileName, logTextBox.Text);
                 AddLog("Saved log to " + dialog.FileName);
+                FocusLog();
+            }
+        }
+
+        private void ExportAddonPack()
+        {
+            try
+            {
+                ResolvePrimaryFolder();
+                var primary = SyncEngine.ResolveNvdaConfigDirectory(GetPrimaryFolder(), "Primary folder", true);
+                using (var dialog = new SaveFileDialog())
+                {
+                    dialog.Title = "Export add-on pack";
+                    dialog.Filter = "NVDA Sync add-on packs (*.json)|*.json|All files (*.*)|*.*";
+                    dialog.FileName = "NVDASync-addon-pack.json";
+                    if (dialog.ShowDialog(this) != DialogResult.OK)
+                    {
+                        return;
+                    }
+                    AddonPackService.ExportPackFile(primary, dialog.FileName);
+                    AddLog("Add-on pack export complete.");
+                    FocusLog();
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog("Add-on pack export failed: " + ex.Message);
+                FocusLog();
+            }
+        }
+
+        private async void InstallLocalAddons()
+        {
+            if (syncing)
+            {
+                AddLog("Sync already running.");
+                FocusLog();
+                return;
+            }
+            var secondaries = GetSecondaryFolders();
+            if (secondaries.Count == 0)
+            {
+                AddLog("Add at least one secondary folder before installing local add-ons.");
+                FocusLog();
+                return;
+            }
+            var source = BrowseFolder("", "Choose folder containing NVDA add-ons");
+            if (source == null)
+            {
+                return;
+            }
+            var confirmation = MessageBox.Show(
+                this,
+                "Install valid add-ons from:" + Environment.NewLine + source + Environment.NewLine + Environment.NewLine +
+                "Targets: configured secondary folders only." + Environment.NewLine +
+                "Existing add-ons with the same manifest name will be replaced.",
+                "Install local add-ons",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Question);
+            if (confirmation != DialogResult.OK)
+            {
+                return;
+            }
+
+            syncing = true;
+            syncButton.Enabled = false;
+            cancelButton.Enabled = true;
+            SetStatus("Installing add-ons");
+            AddLog("Installing local add-ons.");
+            var cancellation = new CancellationTokenSource();
+            syncCancellation = cancellation;
+            var excludePythonCache = settings.ExcludePythonCache;
+            try
+            {
+                var result = await Task.Factory.StartNew(
+                    delegate
+                    {
+                        return AddonPackService.InstallFromDirectory(source, secondaries, excludePythonCache, cancellation.Token);
+                    },
+                    cancellation.Token,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default
+                );
+                AddLog(string.Format(
+                    "Finished installing add-ons. Found {0}, installed {1}, skipped {2}, targets {3}, copied {4}, ignored {5}, unavailable {6}, errors {7}.",
+                    result.AddonsFound,
+                    result.AddonsInstalled,
+                    result.AddonsSkipped,
+                    result.TargetsUpdated,
+                    result.FilesCopied,
+                    result.ItemsIgnored,
+                    result.UnavailableTargets,
+                    result.Errors
+                ));
+                SetStatus(result.Errors == 0 ? "Ready" : "Finished with errors");
+            }
+            catch (OperationCanceledException)
+            {
+                AddLog("Add-on install cancelled.");
+                SetStatus("Cancelled");
+            }
+            catch (Exception ex)
+            {
+                AddLog("Add-on install failed: " + ex.Message);
+                SetStatus("Install failed");
+            }
+            finally
+            {
+                syncButton.Enabled = true;
+                cancelButton.Enabled = false;
+                if (syncCancellation == cancellation)
+                {
+                    syncCancellation = null;
+                }
+                cancellation.Dispose();
+                syncing = false;
                 FocusLog();
             }
         }

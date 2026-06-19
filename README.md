@@ -16,7 +16,9 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Auto-sync watches the primary folder and pushes changes after a short debounce.
 - Unavailable removable-drive secondaries are skipped without interrupting the user, then retried periodically while auto-sync is enabled.
 - Manual sync is available from the main window or tray menu.
-- Folders, Options, and Help menus provide keyboard-first access to folder management, Preferences, updates, project links, contact, donate, and About.
+- Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
+- Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
+- Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, auto-sync, Windows startup, start-minimized behavior, and update checks.
 - Optional stale-item deletion makes selected secondary components match the primary exactly.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder.
@@ -32,6 +34,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - `Ctrl+F1`: open the GitHub project page.
 - `Ctrl+,`: open Preferences.
 - `Alt+D`: detect the primary NVDA folder from likely user-profile locations.
+- `Alt+A`: open the Add-ons menu.
 - `Delete`: remove the selected secondary folder when the secondary list has focus.
 - `Escape`: hide to the notification area.
 
@@ -45,6 +48,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - `--secondary <folder>`
 - `--component <id>`
 - `--all-components`
+- `--export-addon-pack <file>`
+- `--install-addons <folder>`
 - `--delete-stale`
 - `--no-delete-stale`
 - `--exclude-python-cache`

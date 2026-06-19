@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.0.0.</p>
+	<p>Current version: 1.1.0.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -24,6 +24,7 @@
 		<li><a href="#menus">Menus</a></li>
 		<li><a href="#preferences">Preferences</a></li>
 		<li><a href="#components">Sync Components</a></li>
+		<li><a href="#addon-packs">Add-on Packs and Local Installs</a></li>
 		<li><a href="#sync-behaviour">Sync Behaviour</a></li>
 		<li><a href="#folder-selection">Folder Selection</a></li>
 		<li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
@@ -50,6 +51,7 @@
 		</thead>
 		<tbody>
 			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary, remove the selected secondary, and validate the current configuration.</td></tr>
+			<tr><td>Add-ons</td><td>Export an add-on pack from the primary folder, or install local add-ons into configured secondary folders.</td></tr>
 			<tr><td>Options</td><td>Open Preferences, save the visible log, minimise to the notification area, and exit.</td></tr>
 			<tr><td>Help</td><td>Open this manual, check for updates, open the GitHub project page, contact Andre, donate, and show About.</td></tr>
 		</tbody>
@@ -117,6 +119,28 @@
 		</tbody>
 	</table>
 
+	<h2 id="addon-packs">Add-on Packs and Local Installs</h2>
+	<p>The Add-ons menu contains tools for preparing or filling secondary NVDA copies without changing the running primary copy.</p>
+	<table>
+		<thead>
+			<tr><th>Command</th><th>What It Does</th><th>Safety Notes</th></tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td>Export add-on pack</td>
+				<td>Reads the primary <code>addons</code> folder and writes a JSON pack file containing add-on names, summaries, versions, authors, descriptions, and installed folder names.</td>
+				<td>The export is metadata only. It does not include add-on code or personal configuration data.</td>
+			</tr>
+			<tr>
+				<td>Install local add-ons to secondaries</td>
+				<td>Reads a folder containing unpacked add-on folders and/or <code>.nvda-addon</code> files, validates each root <code>manifest.ini</code>, and installs valid add-ons into the configured secondary folders.</td>
+				<td>The primary folder is never an install target. Existing add-ons with the same manifest name in a secondary folder are replaced. Unavailable removable drives are skipped quietly and reported in the log.</td>
+			</tr>
+		</tbody>
+	</table>
+	<p>Local add-on install is intended for portable or otherwise offline NVDA folders. It does not download add-ons, contact the NVDA Add-on Store, or install into a running NVDA profile.</p>
+	<p>When Python cache exclusion is enabled in Preferences, local installs also skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files while copying unpacked add-on folders.</p>
+
 	<h2 id="sync-behaviour">Sync Behaviour</h2>
 	<p>The app performs one-way sync only. The primary folder pushes to the configured secondary folders. It does not merge changes back from secondaries.</p>
 	<p>Files that are missing or different in a secondary folder are copied from the primary folder. File replacement is staged through a temporary file before the destination is replaced.</p>
@@ -145,13 +169,14 @@
 		</thead>
 		<tbody>
 			<tr><td>Open the Folders menu.</td><td>Alt+F</td><td>Main window</td></tr>
+			<tr><td>Open the Add-ons menu.</td><td>Alt+A</td><td>Main window</td></tr>
 			<tr><td>Open the Options menu.</td><td>Alt+O</td><td>Main window</td></tr>
 			<tr><td>Open the Help menu.</td><td>Alt+H</td><td>Main window</td></tr>
 			<tr><td>Move to the primary folder field.</td><td>Alt+P</td><td>Main window</td></tr>
 			<tr><td>Browse for the primary folder.</td><td>Alt+B</td><td>Main window</td></tr>
 			<tr><td>Detect the primary folder.</td><td>Alt+D</td><td>Main window</td></tr>
 			<tr><td>Start a sync now.</td><td>Alt+S</td><td>Main window</td></tr>
-			<tr><td>Cancel the current sync.</td><td>Alt+C</td><td>Main window</td></tr>
+			<tr><td>Cancel the current sync or local add-on install.</td><td>Alt+C</td><td>Main window</td></tr>
 			<tr><td>Validate the configured folders and components.</td><td>Alt+V</td><td>Main window</td></tr>
 			<tr><td>Minimise the app to the notification area.</td><td>Alt+N</td><td>Main window</td></tr>
 			<tr><td>Open Preferences.</td><td>Ctrl+comma</td><td>Main window</td></tr>
@@ -183,6 +208,8 @@
 			<tr><td><code>NvdaAddonSync.exe --no-delete-stale</code></td><td>Do not delete stale files and folders during <code>--sync</code>.</td></tr>
 			<tr><td><code>NvdaAddonSync.exe --component "id"</code></td><td>Sync one component. May be repeated. IDs are <code>addons</code>, <code>inputGestures</code>, <code>nvdaIni</code>, <code>speechDictionaries</code>, <code>configProfiles</code>, <code>otherConfigFiles</code>, and <code>otherConfigFolders</code>.</td></tr>
 			<tr><td><code>NvdaAddonSync.exe --all-components</code></td><td>Sync every supported component.</td></tr>
+			<tr><td><code>NvdaAddonSync.exe --export-addon-pack "file"</code></td><td>Export installed add-on metadata from the primary folder. Use <code>--primary</code> to override the saved primary folder.</td></tr>
+			<tr><td><code>NvdaAddonSync.exe --install-addons "folder"</code></td><td>Install local add-ons from a folder into secondary folders only. Use one or more <code>--secondary</code> switches to override saved secondary folders.</td></tr>
 			<tr><td><code>NvdaAddonSync.exe --exclude-python-cache</code></td><td>Skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files.</td></tr>
 			<tr><td><code>NvdaAddonSync.exe --include-python-cache</code></td><td>Copy Python cache files.</td></tr>
 			<tr><td><code>NvdaAddonSync.exe --save</code></td><td>Save command-line folder choices, components, and options back to the app settings.</td></tr>
@@ -214,6 +241,14 @@
 	<p>Use <strong>Preferences &gt; Startup and updates</strong> to choose whether NVDA Sync checks for updates never, at startup, hourly, or daily. If <strong>Install updates silently when possible</strong> is enabled, automatic checks can install a newer ZIP release without prompting. Manual update checks still show the normal update dialog.</p>
 
 	<h2 id="changelog">Changelog</h2>
+	<h3>1.1.0</h3>
+	<ul>
+		<li>Added an Add-ons menu with add-on pack export and local add-on install commands.</li>
+		<li>Added JSON add-on pack export from the primary folder, including add-on names, summaries, versions, authors, descriptions, and installed folder names.</li>
+		<li>Added local add-on installation into configured secondary folders from unpacked add-on folders and <code>.nvda-addon</code> files.</li>
+		<li>Added manifest validation, replacement of matching add-ons in secondary folders, quiet skipping of unavailable targets, and Python cache exclusion during local folder installs.</li>
+		<li>Added command-line switches for add-on pack export and local add-on installation.</li>
+	</ul>
 	<h3>1.0.0</h3>
 	<ul>
 		<li>Initial portable release of NVDA Sync.</li>

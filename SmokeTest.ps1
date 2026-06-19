@@ -128,7 +128,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.0.0"
+Assert-ChangelogClean "1.1.0"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -141,6 +141,9 @@ $cliPrimary = Join-Path $tempRoot "cliNvda"
 	$cliSecondaryGestures = Join-Path $tempRoot "cliSecondaryGestures"
 $componentPrimary = Join-Path $tempRoot "componentPrimary\userConfig"
 $componentSecondaryAddons = Join-Path $tempRoot "componentSecondary\userConfig\addons"
+$addonInstallSource = Join-Path $tempRoot "addonInstallSource"
+$addonInstallTarget = Join-Path $tempRoot "addonInstallTarget"
+$packExport = Join-Path $tempRoot "addon-pack.json"
 $usedDrives = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() }
 $missingDriveLetter = ([char[]](90..68 | ForEach-Object { [char]$_ }) | Where-Object { $usedDrives -notcontains ([string]$_) } | Select-Object -First 1)
 if (-not $missingDriveLetter) {
@@ -162,6 +165,9 @@ try {
 	New-Item -ItemType Directory -Path $cliSecondaryGestures -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $componentPrimary "addons") -Force | Out-Null
 	New-Item -ItemType Directory -Path $componentSecondaryAddons -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $addonInstallSource "folderAddon\__pycache__") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $addonInstallSource "archiveAddonBuild") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $addonInstallTarget "userConfig\addons\oldName") -Force | Out-Null
 	Set-Content -LiteralPath (Join-Path $portableNvda "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\gestures.ini") -Value "cli gestures" -Encoding UTF8
@@ -175,6 +181,13 @@ try {
 	Set-Content -LiteralPath (Join-Path $cliPrimaryAddons "addonB\manifest.ini") -Value "name = addonB" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\sonata\voice.txt") -Value "cli voice" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $componentPrimary "gestures.ini") -Value "component gestures" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $addonInstallSource "folderAddon\manifest.ini") -Value "name = folderAddon`nsummary = Folder Add-on`nversion = 1.0`nauthor = Tester" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $addonInstallSource "folderAddon\globalPlugin.py") -Value "plugin" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $addonInstallSource "folderAddon\__pycache__\globalPlugin.pyc") -Value "cache" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\manifest.ini") -Value "name = archiveAddon`nsummary = Archive Add-on`nversion = 1.0" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\addon.py") -Value "archive" -Encoding UTF8
+	Compress-Archive -Path (Join-Path $addonInstallSource "archiveAddonBuild\*") -DestinationPath (Join-Path $addonInstallSource "archiveAddon.nvda-addon") -Force
+	Remove-Item -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild") -Recurse -Force
 	New-Item -ItemType Directory -Path $nestedSecondary -Force | Out-Null
 
 	$harness = Join-Path $tempRoot "Harness.cs"
@@ -229,6 +242,20 @@ class Harness
 			return 7;
 		}
 		Console.WriteLine("component-folder-sync-ok");
+		AddonPackService.ExportPackFile(args[0], args[7]);
+		if (!System.IO.File.Exists(args[7]) || System.IO.File.ReadAllText(args[7]).IndexOf("addonA", StringComparison.OrdinalIgnoreCase) < 0)
+		{
+			Console.WriteLine("addon-pack-export-failed");
+			return 8;
+		}
+		Console.WriteLine("addon-pack-export-ok");
+		var installResult = AddonPackService.InstallFromDirectory(args[8], new[] { args[9] }, true, System.Threading.CancellationToken.None);
+		if (installResult.Errors != 0 || installResult.AddonsInstalled != 2 || installResult.TargetsUpdated != 1)
+		{
+			Console.WriteLine("addon-install-failed errors=" + installResult.Errors + " installed=" + installResult.AddonsInstalled + " targets=" + installResult.TargetsUpdated);
+			return 9;
+		}
+		Console.WriteLine("addon-install-ok");
 		return result.Errors == 0 ? 0 : 1;
 	}
 }
@@ -239,11 +266,11 @@ class Harness
 		$compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
 	}
 	$testExe = Join-Path $tempRoot "Harness.exe"
-	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SyncEngine.cs") $harness
+	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\AddonPackService.cs") $harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
-	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary
+	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness failed."
 	}
@@ -271,6 +298,15 @@ class Harness
 	if (Test-Path -LiteralPath (Join-Path $componentSecondaryAddons "gestures.ini")) {
 		throw "Component-folder secondary incorrectly synced gestures.ini inside addons."
 	}
+	if (-not (Test-Path -LiteralPath (Join-Path $addonInstallTarget "userConfig\addons\folderAddon\manifest.ini"))) {
+		throw "Local folder add-on was not installed."
+	}
+	if (-not (Test-Path -LiteralPath (Join-Path $addonInstallTarget "userConfig\addons\archiveAddon\manifest.ini"))) {
+		throw "Archive add-on was not installed."
+	}
+	if (Test-Path -LiteralPath (Join-Path $addonInstallTarget "userConfig\addons\folderAddon\__pycache__\globalPlugin.pyc")) {
+		throw "Local add-on install should exclude Python cache files."
+	}
 	if (Test-Path -LiteralPath (Join-Path $root "portable\README.md")) {
 		throw "README.md should not be in portable output."
 	}
@@ -285,8 +321,10 @@ class Harness
 		'<h2 id="keyboard-shortcuts">Keyboard Shortcuts</h2>',
 		'<h2 id="menus">Menus</h2>',
 		'<h2 id="preferences">Preferences</h2>',
+		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.1.0</h3>',
 		'<h3>1.0.0</h3>',
 		'<h2 id="credits">Credits</h2>'
 	)) {
@@ -324,6 +362,27 @@ class Harness
 	}
 	if (-not (Test-Path -LiteralPath (Join-Path $cliSecondaryGestures "userConfig\sonata\voice.txt"))) {
 		throw "Command-line otherConfigFolders sync did not copy Sonata-style data."
+	}
+	$cliPack = Join-Path $tempRoot "cli-pack.json"
+	$cliPackRun = Start-Process -FilePath $builtExe -ArgumentList @(
+		"--primary", $primary,
+		"--export-addon-pack", $cliPack
+	) -Wait -PassThru
+	if ($cliPackRun.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $cliPack)) {
+		throw "Command-line add-on pack export failed."
+	}
+	$cliInstallTarget = Join-Path $tempRoot "cliInstallTarget"
+	New-Item -ItemType Directory -Path $cliInstallTarget -Force | Out-Null
+	$cliInstallRun = Start-Process -FilePath $builtExe -ArgumentList @(
+		"--install-addons", $addonInstallSource,
+		"--secondary", $cliInstallTarget,
+		"--exclude-python-cache"
+	) -Wait -PassThru
+	if ($cliInstallRun.ExitCode -ne 0) {
+		throw "Command-line add-on install failed with exit code $($cliInstallRun.ExitCode)."
+	}
+	if (-not (Test-Path -LiteralPath (Join-Path $cliInstallTarget "userConfig\addons\folderAddon\manifest.ini"))) {
+		throw "Command-line add-on install did not copy folderAddon."
 	}
 
 	$updateTarget = Join-Path $tempRoot "updateTarget"

@@ -9,7 +9,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.0.0";
+        internal const string Version = "1.1.0";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -51,6 +51,16 @@ namespace NvdaAddonSync
             if (commandLine.SyncOnce)
             {
                 Environment.ExitCode = RunCommandLineSync(commandLine);
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(commandLine.ExportAddonPackFile))
+            {
+                Environment.ExitCode = RunCommandLineAddonPackExport(commandLine);
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(commandLine.InstallAddonsFolder))
+            {
+                Environment.ExitCode = RunCommandLineAddonInstall(commandLine);
                 return;
             }
 
@@ -126,6 +136,35 @@ namespace NvdaAddonSync
             settings.SyncOtherConfigFiles = components.Contains(SyncComponent.OtherConfigFiles);
             settings.SyncOtherConfigFolders = components.Contains(SyncComponent.OtherConfigFolders);
         }
+
+        private static int RunCommandLineAddonPackExport(CommandLineOptions options)
+        {
+            var settings = AppSettings.Load();
+            var primary = string.IsNullOrWhiteSpace(options.PrimaryFolder) ? settings.PrimaryFolder : options.PrimaryFolder;
+            AddonPackService.ExportPackFile(primary, options.ExportAddonPackFile);
+            return 0;
+        }
+
+        private static int RunCommandLineAddonInstall(CommandLineOptions options)
+        {
+            var settings = AppSettings.Load();
+            var secondaries = new List<string>();
+            if (options.SecondaryFolders.Count > 0)
+            {
+                secondaries.AddRange(options.SecondaryFolders);
+            }
+            else
+            {
+                secondaries.AddRange(settings.SecondaryFolders);
+            }
+            if (secondaries.Count == 0)
+            {
+                throw new InvalidOperationException("Add at least one secondary folder for --install-addons.");
+            }
+            var excludePythonCache = options.ExcludePythonCacheOverride.HasValue ? options.ExcludePythonCacheOverride.Value : settings.ExcludePythonCache;
+            var result = AddonPackService.InstallFromDirectory(options.InstallAddonsFolder, secondaries, excludePythonCache, CancellationToken.None);
+            return result.Errors == 0 ? 0 : 2;
+        }
     }
 
     internal enum AppCommand
@@ -185,6 +224,8 @@ namespace NvdaAddonSync
         public bool SyncOnce { get; private set; }
         public bool SaveSettings { get; private set; }
         public string PrimaryFolder { get; private set; }
+        public string ExportAddonPackFile { get; private set; }
+        public string InstallAddonsFolder { get; private set; }
         public bool? DeleteStaleOverride { get; private set; }
         public bool? ExcludePythonCacheOverride { get; private set; }
         public bool AllComponents { get; private set; }
@@ -252,6 +293,12 @@ namespace NvdaAddonSync
                     case "--secondary":
                         options.SecondaryFolders.Add(RequireValue(args, ref i, arg));
                         break;
+                    case "--export-addon-pack":
+                        options.ExportAddonPackFile = RequireValue(args, ref i, arg);
+                        break;
+                    case "--install-addons":
+                        options.InstallAddonsFolder = RequireValue(args, ref i, arg);
+                        break;
                 }
             }
             return options;
@@ -307,6 +354,8 @@ namespace NvdaAddonSync
                     "--no-delete-stale      Do not delete stale files for this --sync.",
                     "--component <id>       Sync one component. May be repeated. IDs: addons, inputGestures, nvdaIni, speechDictionaries, configProfiles, otherConfigFiles, otherConfigFolders.",
                     "--all-components       Sync every supported component.",
+                    "--export-addon-pack <file> Export installed add-on metadata from the primary folder.",
+                    "--install-addons <folder> Install local add-ons from a folder into secondary folders only.",
                     "--exclude-python-cache Exclude __pycache__, .pyc, and .pyo files.",
                     "--include-python-cache Include Python cache files.",
                     "--save                 Save command-line folders/options to app settings.",
