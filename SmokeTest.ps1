@@ -62,9 +62,10 @@ function Assert-UniquePreferencesMnemonics {
 
 	$expected = @{
 		C = '&Components to sync'
-		W = '&Watch primary folder and sync when it changes'
+		W = '&Watch primary folder and sync changes after 1.5 seconds'
 		D = '&Delete stale items from secondary folders'
 		X = 'E&xclude Python cache files'
+		B = 'Create &backup ZIP before program-file updates'
 		S = 'Run NVDA Sync at Windows &startup'
 		M = 'Start &minimized to the notification area'
 		U = 'Check for &updates'
@@ -85,6 +86,7 @@ function Assert-ShortcutSource {
 		'Keys.Shift | Keys.F1',
 		'Keys.Control | Keys.F1',
 		'Keys.Control | Keys.Oemcomma',
+		'keyData == Keys.Enter && secondaryListBox.Focused',
 		'keyData == Keys.Delete && secondaryListBox.Focused'
 	)) {
 		if ($mainSource -notlike "*$required*") {
@@ -128,7 +130,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.1.0"
+Assert-ChangelogClean "1.2.0"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -186,7 +188,9 @@ try {
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "folderAddon\__pycache__\globalPlugin.pyc") -Value "cache" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\manifest.ini") -Value "name = archiveAddon`nsummary = Archive Add-on`nversion = 1.0" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\addon.py") -Value "archive" -Encoding UTF8
-	Compress-Archive -Path (Join-Path $addonInstallSource "archiveAddonBuild\*") -DestinationPath (Join-Path $addonInstallSource "archiveAddon.nvda-addon") -Force
+	$archiveZip = Join-Path $addonInstallSource "archiveAddon.zip"
+	Compress-Archive -Path (Join-Path $addonInstallSource "archiveAddonBuild\*") -DestinationPath $archiveZip -Force
+	Move-Item -LiteralPath $archiveZip -Destination (Join-Path $addonInstallSource "archiveAddon.nvda-addon") -Force
 	Remove-Item -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild") -Recurse -Force
 	New-Item -ItemType Directory -Path $nestedSecondary -Force | Out-Null
 
@@ -266,7 +270,7 @@ class Harness
 		$compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
 	}
 	$testExe = Join-Path $tempRoot "Harness.exe"
-	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\AddonPackService.cs") $harness
+	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SecondaryFolderProfile.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\PortableNvdaUpdateService.cs") (Join-Path $root "src\AddonPackService.cs") $harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
@@ -321,9 +325,11 @@ class Harness
 		'<h2 id="keyboard-shortcuts">Keyboard Shortcuts</h2>',
 		'<h2 id="menus">Menus</h2>',
 		'<h2 id="preferences">Preferences</h2>',
+		'<h2 id="secondary-properties">Secondary Folder Properties</h2>',
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.2.0</h3>',
 		'<h3>1.1.0</h3>',
 		'<h3>1.0.0</h3>',
 		'<h2 id="credits">Credits</h2>'
@@ -396,7 +402,19 @@ class Harness
 	if (Test-Path -LiteralPath $updateZip) {
 		Remove-Item -LiteralPath $updateZip -Force
 	}
-	Compress-Archive -Path (Join-Path $root "portable\*") -DestinationPath $updateZip -Force
+	$archiveCreated = $false
+	for ($archiveAttempt = 1; $archiveAttempt -le 5; $archiveAttempt++) {
+		try {
+			Compress-Archive -Path (Join-Path $root "portable\*") -DestinationPath $updateZip -Force
+			$archiveCreated = $true
+			break
+		}
+		catch {
+			if ($archiveAttempt -eq 5) { throw }
+			Start-Sleep -Milliseconds 500
+		}
+	}
+	if (-not $archiveCreated) { throw "Could not create update ZIP." }
 	$updateRun = Start-Process -FilePath $builtExe -ArgumentList @(
 		"--apply-update",
 		"--update-url", ([Uri]$updateZip).AbsoluteUri,

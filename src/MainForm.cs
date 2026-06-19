@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Threading;
@@ -33,6 +34,7 @@ namespace NvdaAddonSync
         private bool syncing;
         private bool lastStartupRegistrationSetting;
         private string currentStatus;
+        private string watchedPrimaryFolder;
 
         public MainForm()
         {
@@ -48,6 +50,7 @@ namespace NvdaAddonSync
             syncEngine = new SyncEngine();
             syncEngine.Message += AddLog;
             AddonPackService.Message += AddLog;
+            PortableNvdaUpdateService.Message += AddLog;
 
             syncDebounceTimer = new System.Windows.Forms.Timer();
             syncDebounceTimer.Interval = 1500;
@@ -143,7 +146,7 @@ namespace NvdaAddonSync
             secondaryListBox.Dock = DockStyle.Fill;
             secondaryListBox.SelectionMode = SelectionMode.One;
             secondaryListBox.ContextMenuStrip = BuildSecondaryContextMenu();
-            secondaryListBox.DoubleClick += delegate { EditSecondary(); };
+            secondaryListBox.DoubleClick += delegate { OpenSecondaryProperties(); };
             secondaryGroup.Controls.Add(secondaryListBox);
 
             var actionsPanel = new FlowLayoutPanel();
@@ -213,6 +216,7 @@ namespace NvdaAddonSync
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Add secondary folder...", null, delegate { AddSecondary(); }));
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Edit selected secondary...", null, delegate { EditSecondary(); }));
+            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("Secondary &properties...", null, delegate { OpenSecondaryProperties(); }));
             var removeItem = new ToolStripMenuItem("&Remove selected secondary", null, delegate { RemoveSecondary(); });
             removeItem.ShortcutKeyDisplayString = "Del";
             foldersMenu.DropDownItems.Add(removeItem);
@@ -261,6 +265,7 @@ namespace NvdaAddonSync
             var menu = new ContextMenuStrip();
             menu.Items.Add("Add secondary folder...", null, delegate { AddSecondary(); });
             menu.Items.Add("Edit selected secondary...", null, delegate { EditSecondary(); });
+            menu.Items.Add("Properties...", null, delegate { OpenSecondaryProperties(); });
             menu.Items.Add("Remove selected secondary", null, delegate { RemoveSecondary(); });
             return menu;
         }
@@ -303,6 +308,11 @@ namespace NvdaAddonSync
             if (keyData == (Keys.Control | Keys.Oemcomma))
             {
                 OpenPreferences();
+                return true;
+            }
+            if (keyData == Keys.Enter && secondaryListBox.Focused)
+            {
+                OpenSecondaryProperties();
                 return true;
             }
             if (keyData == Keys.Delete && secondaryListBox.Focused)
@@ -379,9 +389,13 @@ namespace NvdaAddonSync
         {
             SetPrimaryFolder(settings.PrimaryFolder ?? "");
             secondaryListBox.Items.Clear();
-            foreach (var folder in settings.SecondaryFolders)
+            foreach (var profile in settings.SecondaryFolderProfiles)
             {
-                secondaryListBox.Items.Add(folder);
+                if (profile != null)
+                {
+                    profile.Normalize();
+                    secondaryListBox.Items.Add(profile);
+                }
             }
         }
 
@@ -410,7 +424,8 @@ namespace NvdaAddonSync
                 return;
             }
             settings.PrimaryFolder = GetPrimaryFolder();
-            settings.SecondaryFolders = GetSecondaryFolders();
+            settings.SecondaryFolderProfiles = GetSecondaryProfiles();
+            settings.SyncLegacySecondaryFolders();
             if (WindowState == FormWindowState.Normal)
             {
                 settings.WindowLeft = Left;
@@ -421,12 +436,29 @@ namespace NvdaAddonSync
             settings.Save();
         }
 
+        private List<SecondaryFolderProfile> GetSecondaryProfiles()
+        {
+            var profiles = new List<SecondaryFolderProfile>();
+            foreach (var item in secondaryListBox.Items)
+            {
+                var profile = item as SecondaryFolderProfile;
+                if (profile != null)
+                {
+                    profile.Normalize();
+                    profiles.Add(profile);
+                    continue;
+                }
+                profiles.Add(SecondaryFolderProfile.FromPath(Convert.ToString(item)));
+            }
+            return profiles;
+        }
+
         private List<string> GetSecondaryFolders()
         {
             var folders = new List<string>();
-            foreach (var item in secondaryListBox.Items)
+            foreach (var profile in GetSecondaryProfiles())
             {
-                folders.Add(Convert.ToString(item));
+                folders.Add(profile.Path);
             }
             return folders;
         }
@@ -577,6 +609,7 @@ namespace NvdaAddonSync
                 if (!settings.AutoSync)
                 {
                     availabilityTimer.Stop();
+                    watchedPrimaryFolder = null;
                     SetStatus("Ready");
                     return;
                 }
@@ -584,10 +617,15 @@ namespace NvdaAddonSync
                 var primary = GetPrimaryFolder();
                 if (Directory.Exists(primary))
                 {
+                    var changedWatchPath = !string.Equals(watchedPrimaryFolder, primary, StringComparison.OrdinalIgnoreCase);
                     watcher.Path = primary;
                     watcher.EnableRaisingEvents = true;
+                    watchedPrimaryFolder = primary;
                     SetStatus("Watching");
-                    AddLog("Watching " + primary);
+                    if (changedWatchPath)
+                    {
+                        AddLog("Watching " + primary);
+                    }
                 }
             }
             catch (Exception ex)
@@ -595,7 +633,6 @@ namespace NvdaAddonSync
                 AddLog("Watcher disabled: " + ex.Message);
             }
         }
-
         private void OnPrimaryFolderChanged(object sender, FileSystemEventArgs e)
         {
             BeginInvoke(new Action(delegate
@@ -718,7 +755,7 @@ namespace NvdaAddonSync
             var selected = BrowseFolder("", "Choose secondary NVDA folder");
             if (selected != null)
             {
-                secondaryListBox.Items.Add(ResolveFolderForUi(selected, "Secondary folder", false));
+                secondaryListBox.Items.Add(SecondaryFolderProfile.FromPath(ResolveFolderForUi(selected, "Secondary folder", false)));
                 SaveSettingsFromControls();
             }
         }
@@ -738,6 +775,29 @@ namespace NvdaAddonSync
             }
         }
 
+
+        private void OpenSecondaryProperties()
+        {
+            if (secondaryListBox.SelectedIndex < 0)
+            {
+                return;
+            }
+            var profile = secondaryListBox.SelectedItem as SecondaryFolderProfile;
+            if (profile == null)
+            {
+                profile = SecondaryFolderProfile.FromPath(Convert.ToString(secondaryListBox.SelectedItem));
+                secondaryListBox.Items[secondaryListBox.SelectedIndex] = profile;
+            }
+            using (var dialog = new SecondaryFolderPropertiesForm(profile, settings))
+            {
+                dialog.ShowDialog(this);
+            }
+            profile.Normalize();
+            var index = secondaryListBox.SelectedIndex;
+            secondaryListBox.Items[index] = profile;
+            secondaryListBox.SelectedIndex = index;
+            SaveSettingsFromControls();
+        }
         private void ResolvePrimaryFolder()
         {
             var value = GetPrimaryFolder();
@@ -813,18 +873,35 @@ namespace NvdaAddonSync
             try
             {
                 SyncEngine.ResolveNvdaConfigDirectory(GetPrimaryFolder(), "Primary folder", true);
-                var folders = GetSecondaryFolders();
-                if (folders.Count == 0)
+                var profiles = GetSecondaryProfiles();
+                if (profiles.Count == 0)
                 {
                     throw new InvalidOperationException("Add at least one secondary folder.");
                 }
-                if (SyncComponent.FromSettings(settings).Count == 0)
+                var hasWork = false;
+                var needsProgramSource = false;
+                foreach (var profile in profiles)
                 {
-                    throw new InvalidOperationException("Choose at least one component to sync.");
+                    var policy = profile.Resolve(settings);
+                    if (!policy.HasWork)
+                    {
+                        throw new InvalidOperationException("Choose at least one sync option for " + profile.Path + ".");
+                    }
+                    hasWork = true;
+                    SyncEngine.ResolveNvdaConfigDirectory(policy.Path, "Secondary folder", false);
+                    if (policy.SyncNvdaProgramFiles)
+                    {
+                        needsProgramSource = true;
+                        PortableNvdaUpdateService.ResolvePortableRoot(policy.Path, false);
+                    }
                 }
-                foreach (var folder in folders)
+                if (!hasWork)
                 {
-                    SyncEngine.ResolveNvdaConfigDirectory(folder, "Secondary folder", false);
+                    throw new InvalidOperationException("Choose at least one component or portable program-file update to sync.");
+                }
+                if (needsProgramSource)
+                {
+                    PortableNvdaUpdateService.DetectInstalledNvdaProgramFolder();
                 }
                 AddLog("Settings look usable.");
             }
@@ -833,7 +910,6 @@ namespace NvdaAddonSync
                 AddLog("Validation failed: " + ex.Message);
             }
         }
-
         private void FocusLog()
         {
             if (IsDisposed || !IsHandleCreated || !logTextBox.CanFocus)
@@ -858,17 +934,22 @@ namespace NvdaAddonSync
             cancelButton.Enabled = true;
             SetStatus("Syncing");
             AddLog(reason + ".");
+            var syncStopwatch = Stopwatch.StartNew();
             ResolvePrimaryFolder();
             var primary = SyncEngine.ResolveNvdaConfigDirectory(GetPrimaryFolder(), "Primary folder", true);
-            var secondaries = new List<string>();
-            foreach (var secondary in GetSecondaryFolders())
+            var policies = new List<SecondaryFolderPolicy>();
+            foreach (var profile in GetSecondaryProfiles())
             {
-                secondaries.Add(SyncEngine.ResolveNvdaConfigDirectory(secondary, "Secondary folder", false));
+                var policy = profile.Resolve(settings);
+                policy.Path = SyncEngine.ResolveNvdaConfigDirectory(policy.Path, "Secondary folder", false);
+                if (policy.HasWork)
+                {
+                    policies.Add(policy);
+                }
             }
-            var components = SyncComponent.FromSettings(settings);
-            if (components.Count == 0)
+            if (policies.Count == 0)
             {
-                AddLog("Choose at least one component to sync.");
+                AddLog("Choose at least one component or portable program-file update to sync.");
                 FocusLog();
                 syncing = false;
                 syncButton.Enabled = true;
@@ -877,10 +958,9 @@ namespace NvdaAddonSync
                 return;
             }
             settings.PrimaryFolder = primary;
-            settings.SecondaryFolders = secondaries;
+            settings.SecondaryFolderProfiles = GetSecondaryProfiles();
+            settings.SyncLegacySecondaryFolders();
             settings.Save();
-            var deleteStale = settings.DeleteStaleItems;
-            var excludePythonCache = settings.ExcludePythonCache;
             var cancellation = new CancellationTokenSource();
             syncCancellation = cancellation;
             try
@@ -889,31 +969,53 @@ namespace NvdaAddonSync
                 var result = await Task.Factory.StartNew(
                     delegate
                     {
-                        return syncEngine.Sync(
-                            primary,
-                            secondaries,
-                            new SyncOptions
+                        var total = new SyncResult();
+                        foreach (var policy in policies)
+                        {
+                            cancellation.Token.ThrowIfCancellationRequested();
+                            if (policy.Components != null && policy.Components.Count > 0)
                             {
-                                DeleteStaleItems = deleteStale,
-                                ExcludePythonCache = excludePythonCache,
-                                Components = components,
-                                CancellationToken = cancellation.Token
+                                var configResult = syncEngine.Sync(
+                                    primary,
+                                    new[] { policy.Path },
+                                    new SyncOptions
+                                    {
+                                        DeleteStaleItems = policy.DeleteStaleItems,
+                                        ExcludePythonCache = policy.ExcludePythonCache,
+                                        AddonMode = policy.AddonMode,
+                                        Components = policy.Components,
+                                        CancellationToken = cancellation.Token
+                                    }
+                                );
+                                AddSyncResult(total, configResult);
                             }
-                        );
+                            if (policy.SyncNvdaProgramFiles)
+                            {
+                                var programResult = PortableNvdaUpdateService.UpdateTarget(PortableNvdaUpdateService.DetectInstalledNvdaProgramFolder(), policy.Path, policy.CreateProgramBackups, cancellation.Token);
+                                total.ComponentsSynced += programResult.TargetsUpdated;
+                                total.FilesCopied += programResult.FilesAdded + programResult.FilesReplaced;
+                                total.FilesSkipped += programResult.FilesSkipped;
+                                total.ItemsDeleted += programResult.FilesDeleted + programResult.DirectoriesDeleted;
+                                total.UnavailableTargets += programResult.UnavailableTargets;
+                                total.Errors += programResult.Errors;
+                            }
+                        }
+                        return total;
                     },
                     cancellation.Token,
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default
                 );
                 AddLog(string.Format(
-                    "Finished. Components {0}, copied {1}, skipped {2}, ignored {3}, deleted {4}, unavailable {5}, errors {6}.",
+                    "Finished. Components {0}, copied {1}, skipped {2}, ignored {3}, deleted {4}, unavailable {5}, errors {6}. Time taken {7}.",
                     result.ComponentsSynced,
                     result.FilesCopied,
                     result.FilesSkipped,
                     result.ItemsIgnored,
                     result.ItemsDeleted,
                     result.UnavailableTargets,
-                    result.Errors
+                    result.Errors,
+                    FormatDuration(syncStopwatch.Elapsed)
                 ));
                 if (result.Errors != 0)
                 {
@@ -952,6 +1054,29 @@ namespace NvdaAddonSync
             }
         }
 
+        private static void AddSyncResult(SyncResult total, SyncResult addition)
+        {
+            total.ComponentsSynced += addition.ComponentsSynced;
+            total.FilesCopied += addition.FilesCopied;
+            total.FilesSkipped += addition.FilesSkipped;
+            total.ItemsDeleted += addition.ItemsDeleted;
+            total.ItemsIgnored += addition.ItemsIgnored;
+            total.UnavailableTargets += addition.UnavailableTargets;
+            total.Errors += addition.Errors;
+        }
+
+        private static string FormatDuration(TimeSpan duration)
+        {
+            if (duration.TotalHours >= 1)
+            {
+                return string.Format("{0:0}:{1:00}:{2:00}", Math.Floor(duration.TotalHours), duration.Minutes, duration.Seconds);
+            }
+            if (duration.TotalMinutes >= 1)
+            {
+                return string.Format("{0:0} min {1:00} sec", Math.Floor(duration.TotalMinutes), duration.Seconds);
+            }
+            return string.Format("{0:0.0} sec", duration.TotalSeconds);
+        }
         private void CancelSync()
         {
             var cancellation = syncCancellation;
@@ -1084,6 +1209,7 @@ namespace NvdaAddonSync
             cancelButton.Enabled = true;
             SetStatus("Installing add-ons");
             AddLog("Installing local add-ons.");
+            var installStopwatch = Stopwatch.StartNew();
             var cancellation = new CancellationTokenSource();
             syncCancellation = cancellation;
             var excludePythonCache = settings.ExcludePythonCache;
@@ -1099,7 +1225,7 @@ namespace NvdaAddonSync
                     TaskScheduler.Default
                 );
                 AddLog(string.Format(
-                    "Finished installing add-ons. Found {0}, installed {1}, skipped {2}, targets {3}, copied {4}, ignored {5}, unavailable {6}, errors {7}.",
+                    "Finished installing add-ons. Found {0}, installed {1}, skipped {2}, targets {3}, copied {4}, ignored {5}, unavailable {6}, errors {7}. Time taken {8}.",
                     result.AddonsFound,
                     result.AddonsInstalled,
                     result.AddonsSkipped,
@@ -1107,7 +1233,8 @@ namespace NvdaAddonSync
                     result.FilesCopied,
                     result.ItemsIgnored,
                     result.UnavailableTargets,
-                    result.Errors
+                    result.Errors,
+                    FormatDuration(installStopwatch.Elapsed)
                 ));
                 SetStatus(result.Errors == 0 ? "Ready" : "Finished with errors");
             }

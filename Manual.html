@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.1.0.</p>
+	<p>Current version: 1.2.0.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -24,6 +24,7 @@
 		<li><a href="#menus">Menus</a></li>
 		<li><a href="#preferences">Preferences</a></li>
 		<li><a href="#components">Sync Components</a></li>
+        <li><a href="#secondary-properties">Secondary Folder Properties</a></li>
 		<li><a href="#addon-packs">Add-on Packs and Local Installs</a></li>
 		<li><a href="#sync-behaviour">Sync Behaviour</a></li>
 		<li><a href="#folder-selection">Folder Selection</a></li>
@@ -41,7 +42,7 @@
 		<li>Set your installed NVDA folder as the primary folder. NVDA Sync tries to detect this automatically on first run; use Browse or Detect if it needs changing.</li>
 		<li>Add portable NVDA folders or NVDA configuration folders as secondaries, such as <code>E:\nvda</code>, <code>F:\nvda</code>, or their <code>userConfig</code> folders.</li>
 		<li>Open Preferences with Ctrl+comma and choose the components you want to sync. Add-ons are selected by default.</li>
-		<li>Press <strong>Sync now</strong>, or leave auto-sync enabled so changes in the primary folder are pushed after they settle.</li>
+		<li>Press <strong>Sync now</strong>, or leave auto-sync enabled so primary-folder file changes trigger a sync after a 1.5 second settle period.</li>
 	</ol>
 
 	<h2 id="menus">Menus</h2>
@@ -50,7 +51,7 @@
 			<tr><th>Menu</th><th>Commands</th></tr>
 		</thead>
 		<tbody>
-			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary, remove the selected secondary, and validate the current configuration.</td></tr>
+			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary, open properties for the selected secondary, remove the selected secondary, and validate the current configuration.</td></tr>
 			<tr><td>Add-ons</td><td>Export an add-on pack from the primary folder, or install local add-ons into configured secondary folders.</td></tr>
 			<tr><td>Options</td><td>Open Preferences, save the visible log, minimise to the notification area, and exit.</td></tr>
 			<tr><td>Help</td><td>Open this manual, check for updates, open the GitHub project page, contact Andre, donate, and show About.</td></tr>
@@ -65,7 +66,7 @@
 			<tr><th>Tab</th><th>Settings</th></tr>
 		</thead>
 		<tbody>
-			<tr><td>Sync</td><td>Choose which NVDA components are synced, enable or disable primary-folder watching, and choose whether stale items are deleted from secondaries.</td></tr>
+			<tr><td>Sync</td><td>Choose which NVDA components are synced, choose the default add-on mode, choose whether portable NVDA program files are updated, choose whether program updates create ZIP backups, enable or disable primary-folder watching, read the watch timing, and choose whether stale items are deleted from secondaries.</td></tr>
 			<tr><td>Files</td><td>Choose whether Python cache files are excluded. This is on by default.</td></tr>
 			<tr><td>Startup and updates</td><td>Choose whether NVDA Sync runs when Windows starts, whether it starts minimised to the notification area, how often it checks GitHub releases, and whether automatic checks may install updates silently when possible.</td></tr>
 		</tbody>
@@ -116,8 +117,19 @@
 				<td>Other folders stored directly in the NVDA configuration folder, such as add-on data folders. Known components such as <code>addons</code>, <code>profiles</code>, and <code>speechDicts</code> are not included here because they have their own entries.</td>
 				<td>Off</td>
 			</tr>
+			<tr>
+				<td>Portable NVDA program files</td>
+				<td>Updates the application files in a portable NVDA folder from the installed NVDA program folder. The target must be a portable copy with <code>nvda.exe</code> and <code>userConfig</code>.</td>
+				<td>Off</td>
+			</tr>
 		</tbody>
 	</table>
+	<h2 id="secondary-properties">Secondary Folder Properties</h2>
+	<p>Each secondary folder can use the global defaults from Preferences or override them. Select a secondary folder and press Enter, double-click it, or choose Properties from the context menu to edit that target.</p>
+	<p>Per-folder properties are useful when one portable copy should receive every add-on, another should update only add-ons that are already installed there, and another should receive dictionaries or gestures but not add-ons.</p>
+	<p>The add-on mode choices are: sync all add-ons, update existing add-ons only, or do not sync add-ons. Existing-only mode updates matching add-on folders already present in the secondary, leaves target-only add-ons alone, and does not add new add-ons from the primary.</p>
+	<p>When portable NVDA program-file updates are enabled for a secondary, NVDA Sync updates the portable copy from the installed NVDA program folder. Before replacing files, it can create a ZIP backup beside the portable folder named like <code>nvda20260619-143000.zip</code>. Backups are enabled by default and can be turned off globally or per secondary folder. The backup excludes <code>userConfig</code>, <code>Settings</code>, <code>Logs</code>, and <code>Backups</code>.</p>
+	<p>Program-file updates first compare the installed NVDA program folder with the portable target. If nothing differs, no backup is created and no files are touched. They also refuse installed NVDA under Program Files, refuse folder pairs that contain each other, and refuse to update a portable copy while that copy of NVDA is running.</p>
 
 	<h2 id="addon-packs">Add-on Packs and Local Installs</h2>
 	<p>The Add-ons menu contains tools for preparing or filling secondary NVDA copies without changing the running primary copy.</p>
@@ -146,8 +158,8 @@
 	<p>Files that are missing or different in a secondary folder are copied from the primary folder. File replacement is staged through a temporary file before the destination is replaced.</p>
 	<p>When <strong>Delete stale items from secondary folders</strong> is enabled, files and folders that exist only in a selected secondary component are removed so the secondary matches the primary for that component.</p>
 	<p><strong>Exclude Python cache files</strong> is enabled by default. This skips <code>__pycache__</code> folders, <code>.pyc</code> files, and <code>.pyo</code> files while copying. When stale deletion is enabled, existing Python cache files in secondaries are removed. NVDA and add-ons can rebuild those files when needed, and excluding them avoids wasting space on removable drives with large cluster sizes.</p>
-	<p>Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
-	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, it periodically checks unavailable secondaries and syncs again after they become available.</p>
+	<p>Auto-sync uses file-system change events from the primary folder and waits 1.5 seconds after the last change before syncing. Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
+	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, unavailable secondaries are checked again every 60 seconds and synced after they become available.</p>
 	<p>The notification area tooltip reports the current state, such as ready, watching, syncing, waiting for a drive, or finished with errors.</p>
 	<p>The app refuses to sync when the primary and secondary are the same folder, or when one folder contains the other.</p>
 
@@ -180,7 +192,8 @@
 			<tr><td>Validate the configured folders and components.</td><td>Alt+V</td><td>Main window</td></tr>
 			<tr><td>Minimise the app to the notification area.</td><td>Alt+N</td><td>Main window</td></tr>
 			<tr><td>Open Preferences.</td><td>Ctrl+comma</td><td>Main window</td></tr>
-			<tr><td>Remove the selected secondary folder.</td><td>Delete</td><td>Secondary folders list</td></tr>
+			<tr><td>Open properties for the selected secondary folder.</td><td>Enter</td><td>Secondary folders list</td></tr>
+            <tr><td>Remove the selected secondary folder.</td><td>Delete</td><td>Secondary folders list</td></tr>
 			<tr><td>Open this manual.</td><td>F1</td><td>Main window</td></tr>
 			<tr><td>Check GitHub releases for updates.</td><td>Shift+F1</td><td>Main window</td></tr>
 			<tr><td>Open the GitHub project page.</td><td>Ctrl+F1</td><td>Main window</td></tr>
@@ -241,7 +254,16 @@
 	<p>Use <strong>Preferences &gt; Startup and updates</strong> to choose whether NVDA Sync checks for updates never, at startup, hourly, or daily. If <strong>Install updates silently when possible</strong> is enabled, automatic checks can install a newer ZIP release without prompting. Manual update checks still show the normal update dialog.</p>
 
 	<h2 id="changelog">Changelog</h2>
-	<h3>1.1.0</h3>
+
+	<h3>1.2.0</h3>
+	<ul>
+		<li>Added per-folder properties so each secondary can use global defaults or its own sync choices.</li>
+		<li>Added an add-on mode for updating only add-ons already present in a secondary folder.</li>
+		<li>Added optional portable NVDA program-file updates from the installed NVDA program folder.</li>
+		<li>Added optional ZIP backups beside portable NVDA targets before program files are replaced, while excluding user content.</li>
+        <li>Changed portable program-file updates to skip clean targets without creating another backup.</li>
+		<li>Added safety checks so program-file updates only target portable NVDA copies and refuse a copy that is currently running.</li>
+	</ul><h3>1.1.0</h3>
 	<ul>
 		<li>Added an Add-ons menu with add-on pack export and local add-on install commands.</li>
 		<li>Added JSON add-on pack export from the primary folder, including add-on names, summaries, versions, authors, descriptions, and installed folder names.</li>

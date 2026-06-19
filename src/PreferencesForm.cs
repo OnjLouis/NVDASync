@@ -10,6 +10,9 @@ namespace NvdaAddonSync
         private readonly Action preferencesChanged;
         private readonly TabControl tabs;
         private readonly CheckedListBox componentsListBox;
+        private readonly ComboBox addonModeComboBox;
+        private readonly CheckBox syncProgramFilesCheckBox;
+        private readonly CheckBox createProgramBackupsCheckBox;
         private readonly CheckBox autoSyncCheckBox;
         private readonly CheckBox deleteStaleCheckBox;
         private readonly CheckBox excludePythonCacheCheckBox;
@@ -59,7 +62,7 @@ namespace NvdaAddonSync
             var syncLayout = new TableLayoutPanel();
             syncLayout.Dock = DockStyle.Fill;
             syncLayout.ColumnCount = 1;
-            syncLayout.RowCount = 4;
+            syncLayout.RowCount = 9;
             syncLayout.Padding = new Padding(8);
             syncLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             syncLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -89,17 +92,48 @@ namespace NvdaAddonSync
             };
             syncLayout.Controls.Add(componentsListBox, 0, 1);
 
+            var addonModeLabel = new Label();
+            addonModeLabel.AutoSize = true;
+            addonModeLabel.Text = "&Add-on mode";
+            syncLayout.Controls.Add(addonModeLabel, 0, 2);
+
+            addonModeComboBox = new ComboBox();
+            addonModeComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            addonModeComboBox.Width = 280;
+            addonModeComboBox.AccessibleName = "Add-on mode";
+            addonModeComboBox.Items.Add(AddonSyncMode.DisplayName(AddonSyncMode.All));
+            addonModeComboBox.Items.Add(AddonSyncMode.DisplayName(AddonSyncMode.ExistingOnly));
+            addonModeComboBox.Items.Add(AddonSyncMode.DisplayName(AddonSyncMode.None));
+            addonModeComboBox.SelectedIndexChanged += delegate { ApplyNow(); };
+            syncLayout.Controls.Add(addonModeComboBox, 0, 3);
+
+            syncProgramFilesCheckBox = new CheckBox();
+            syncProgramFilesCheckBox.Text = "Portable NVDA &program file updates";
+            syncProgramFilesCheckBox.AutoSize = true;
+            syncProgramFilesCheckBox.CheckedChanged += delegate { ApplyNow(); };
+            syncLayout.Controls.Add(syncProgramFilesCheckBox, 0, 4);
+            createProgramBackupsCheckBox = new CheckBox();
+            createProgramBackupsCheckBox.Text = "Create &backup ZIP before program-file updates";
+            createProgramBackupsCheckBox.AutoSize = true;
+            createProgramBackupsCheckBox.CheckedChanged += delegate { ApplyNow(); };
+            syncLayout.Controls.Add(createProgramBackupsCheckBox, 0, 5);
+
             autoSyncCheckBox = new CheckBox();
-            autoSyncCheckBox.Text = "&Watch primary folder and sync when it changes";
+            autoSyncCheckBox.Text = "&Watch primary folder and sync changes after 1.5 seconds";
             autoSyncCheckBox.AutoSize = true;
             autoSyncCheckBox.CheckedChanged += delegate { ApplyNow(); };
-            syncLayout.Controls.Add(autoSyncCheckBox, 0, 2);
+            syncLayout.Controls.Add(autoSyncCheckBox, 0, 6);
+            var watchNote = new Label();
+            watchNote.AutoSize = true;
+            watchNote.MaximumSize = new Size(540, 0);
+            watchNote.Text = "Unavailable secondary folders are checked again every 60 seconds while watching is enabled.";
+            syncLayout.Controls.Add(watchNote, 0, 7);
 
             deleteStaleCheckBox = new CheckBox();
             deleteStaleCheckBox.Text = "&Delete stale items from secondary folders";
             deleteStaleCheckBox.AutoSize = true;
             deleteStaleCheckBox.CheckedChanged += delegate { ApplyNow(); };
-            syncLayout.Controls.Add(deleteStaleCheckBox, 0, 3);
+            syncLayout.Controls.Add(deleteStaleCheckBox, 0, 8);
 
             var filesPage = new TabPage("Files");
             tabs.TabPages.Add(filesPage);
@@ -193,6 +227,9 @@ namespace NvdaAddonSync
             SetComponentChecked(SyncComponent.ConfigProfiles, settings.SyncConfigProfiles);
             SetComponentChecked(SyncComponent.OtherConfigFiles, settings.SyncOtherConfigFiles);
             SetComponentChecked(SyncComponent.OtherConfigFolders, settings.SyncOtherConfigFolders);
+            addonModeComboBox.SelectedItem = AddonSyncMode.DisplayName(settings.DefaultAddonMode);
+            syncProgramFilesCheckBox.Checked = settings.SyncNvdaProgramFiles;
+            createProgramBackupsCheckBox.Checked = settings.CreateProgramBackups;
             autoSyncCheckBox.Checked = settings.AutoSync;
             deleteStaleCheckBox.Checked = settings.DeleteStaleItems;
             excludePythonCacheCheckBox.Checked = settings.ExcludePythonCache;
@@ -249,6 +286,9 @@ namespace NvdaAddonSync
             {
                 return;
             }
+            settings.DefaultAddonMode = StoredAddonMode(Convert.ToString(addonModeComboBox.SelectedItem));
+            settings.SyncNvdaProgramFiles = syncProgramFilesCheckBox.Checked;
+            settings.CreateProgramBackups = createProgramBackupsCheckBox.Checked;
             settings.AutoSync = autoSyncCheckBox.Checked;
             settings.DeleteStaleItems = deleteStaleCheckBox.Checked;
             settings.ExcludePythonCache = excludePythonCacheCheckBox.Checked;
@@ -295,6 +335,12 @@ namespace NvdaAddonSync
         private static string StoredUpdateFrequency(string value)
         {
             return AppSettings.NormalizeUpdateCheckFrequency(value);
+        }
+        private static string StoredAddonMode(string value)
+        {
+            if (string.Equals(value, AddonSyncMode.DisplayName(AddonSyncMode.ExistingOnly), StringComparison.OrdinalIgnoreCase)) return AddonSyncMode.ExistingOnly;
+            if (string.Equals(value, AddonSyncMode.DisplayName(AddonSyncMode.None), StringComparison.OrdinalIgnoreCase)) return AddonSyncMode.None;
+            return AddonSyncMode.All;
         }
     }
 }

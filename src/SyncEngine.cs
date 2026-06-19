@@ -93,6 +93,7 @@ namespace NvdaAddonSync
         public bool DeleteStaleItems { get; set; }
         public bool ExcludePythonCache { get; set; }
         public List<SyncComponent> Components { get; set; }
+        public string AddonMode { get; set; }
         public CancellationToken CancellationToken { get; set; }
     }
 
@@ -135,6 +136,7 @@ namespace NvdaAddonSync
             {
                 options.Components = new List<SyncComponent> { SyncComponent.Addons };
             }
+            options.AddonMode = AddonSyncMode.Normalize(options.AddonMode);
 
             var result = new SyncResult();
             primaryFolder = ResolveNvdaConfigDirectory(primaryFolder, "Primary folder", true);
@@ -196,6 +198,11 @@ namespace NvdaAddonSync
                 SyncOtherConfigFolders(primaryFolder, targetFolder, result, options);
                 return;
             }
+            if (component == SyncComponent.Addons && AddonSyncMode.Normalize(options.AddonMode) == AddonSyncMode.ExistingOnly)
+            {
+                SyncExistingAddons(primaryFolder, targetFolder, result, options);
+                return;
+            }
 
             var source = Path.Combine(primaryFolder, component.RelativePath);
             var target = Path.Combine(targetFolder, component.RelativePath);
@@ -222,6 +229,44 @@ namespace NvdaAddonSync
             if (options.DeleteStaleItems)
             {
                 DeleteStaleEntries(source, target, result, options);
+            }
+            result.ComponentsSynced++;
+        }
+
+
+        private void SyncExistingAddons(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options)
+        {
+            var sourceAddons = Path.Combine(primaryFolder, SyncComponent.Addons.RelativePath);
+            var targetAddons = Path.Combine(targetFolder, SyncComponent.Addons.RelativePath);
+            if (!Directory.Exists(sourceAddons))
+            {
+                Log("Skipped missing Add-ons.");
+                return;
+            }
+            if (!Directory.Exists(targetAddons))
+            {
+                Log("Skipped existing-only add-on sync because the target has no add-ons folder.");
+                result.ComponentsSynced++;
+                return;
+            }
+
+            Log("Updating existing add-ons only.");
+            foreach (var targetAddon in Directory.EnumerateDirectories(targetAddons, "*", SearchOption.TopDirectoryOnly))
+            {
+                options.CancellationToken.ThrowIfCancellationRequested();
+                var addonName = Path.GetFileName(targetAddon);
+                var sourceAddon = Path.Combine(sourceAddons, addonName);
+                if (!Directory.Exists(sourceAddon))
+                {
+                    result.ItemsIgnored++;
+                    Log("Left target-only add-on unchanged: " + addonName);
+                    continue;
+                }
+                CopyChangedFiles(sourceAddon, targetAddon, result, options);
+                if (options.DeleteStaleItems)
+                {
+                    DeleteStaleEntries(sourceAddon, targetAddon, result, options);
+                }
             }
             result.ComponentsSynced++;
         }

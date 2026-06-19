@@ -16,6 +16,9 @@ namespace NvdaAddonSync
         public List<string> SecondaryFolders { get; set; }
 
         [DataMember]
+        public List<SecondaryFolderProfile> SecondaryFolderProfiles { get; set; }
+
+        [DataMember]
         public bool AutoSync { get; set; }
 
         [DataMember]
@@ -26,6 +29,9 @@ namespace NvdaAddonSync
 
         [DataMember]
         public bool SyncAddons { get; set; }
+
+        [DataMember]
+        public string DefaultAddonMode { get; set; }
 
         [DataMember]
         public bool SyncInputGestures { get; set; }
@@ -44,6 +50,12 @@ namespace NvdaAddonSync
 
         [DataMember]
         public bool SyncOtherConfigFolders { get; set; }
+
+        [DataMember]
+        public bool SyncNvdaProgramFiles { get; set; }
+
+        [DataMember]
+        public bool CreateProgramBackups { get; set; }
 
         [DataMember]
         public bool ExcludePythonCache { get; set; }
@@ -78,19 +90,23 @@ namespace NvdaAddonSync
         public AppSettings()
         {
             SecondaryFolders = new List<string>();
+            SecondaryFolderProfiles = new List<SecondaryFolderProfile>();
             PrimaryFolder = GetDefaultPrimaryFolder();
             AutoSync = true;
             DeleteStaleItems = true;
             StartMinimized = false;
             SyncAddons = true;
+            DefaultAddonMode = AddonSyncMode.All;
             SyncInputGestures = false;
             SyncNvdaIni = false;
             SyncSpeechDictionaries = false;
             SyncConfigProfiles = false;
             SyncOtherConfigFiles = false;
             SyncOtherConfigFolders = false;
+            SyncNvdaProgramFiles = false;
+            CreateProgramBackups = true;
             ExcludePythonCache = true;
-            SettingsVersion = 1;
+            SettingsVersion = 2;
             WindowWidth = 820;
             WindowHeight = 560;
             UpdateCheckFrequency = "Never";
@@ -136,39 +152,7 @@ namespace NvdaAddonSync
                     {
                         return new AppSettings();
                     }
-                    if (settings.SecondaryFolders == null)
-                    {
-                        settings.SecondaryFolders = new List<string>();
-                    }
-                    if (settings.PrimaryFolder == null)
-                    {
-                        settings.PrimaryFolder = "";
-                    }
-                    if (settings.SettingsVersion < 1)
-                    {
-                        settings.SyncAddons = true;
-                        settings.ExcludePythonCache = true;
-                        settings.SettingsVersion = 1;
-                    }
-                    if (!settings.SyncAddons
-                        && !settings.SyncInputGestures
-                        && !settings.SyncNvdaIni
-                        && !settings.SyncSpeechDictionaries
-                        && !settings.SyncConfigProfiles
-                        && !settings.SyncOtherConfigFiles
-                        && !settings.SyncOtherConfigFolders)
-                    {
-                        settings.SyncAddons = true;
-                    }
-                    if (settings.WindowWidth < 500)
-                    {
-                        settings.WindowWidth = 820;
-                    }
-                    if (settings.WindowHeight < 360)
-                    {
-                        settings.WindowHeight = 560;
-                    }
-                    settings.UpdateCheckFrequency = NormalizeUpdateCheckFrequency(settings.UpdateCheckFrequency);
+                    settings.NormalizeAfterLoad();
                     return settings;
                 }
             }
@@ -176,6 +160,75 @@ namespace NvdaAddonSync
             {
                 return new AppSettings();
             }
+        }
+
+        private void NormalizeAfterLoad()
+        {
+            if (SecondaryFolders == null)
+            {
+                SecondaryFolders = new List<string>();
+            }
+            if (SecondaryFolderProfiles == null)
+            {
+                SecondaryFolderProfiles = new List<SecondaryFolderProfile>();
+            }
+            if (SecondaryFolderProfiles.Count == 0)
+            {
+                foreach (var folder in SecondaryFolders)
+                {
+                    if (!string.IsNullOrWhiteSpace(folder))
+                    {
+                        SecondaryFolderProfiles.Add(SecondaryFolderProfile.FromPath(folder));
+                    }
+                }
+            }
+            foreach (var profile in SecondaryFolderProfiles)
+            {
+                if (profile != null)
+                {
+                    profile.Normalize();
+                }
+            }
+            if (PrimaryFolder == null)
+            {
+                PrimaryFolder = "";
+            }
+            if (SettingsVersion < 1)
+            {
+                SyncAddons = true;
+                ExcludePythonCache = true;
+            }
+            SettingsVersion = 2;
+            if (string.IsNullOrWhiteSpace(DefaultAddonMode))
+            {
+                DefaultAddonMode = AddonSyncMode.All;
+            }
+            DefaultAddonMode = AddonSyncMode.Normalize(DefaultAddonMode);
+            if (SettingsVersion < 2)
+            {
+                CreateProgramBackups = true;
+            }
+            if (!SyncAddons
+                && !SyncInputGestures
+                && !SyncNvdaIni
+                && !SyncSpeechDictionaries
+                && !SyncConfigProfiles
+                && !SyncOtherConfigFiles
+                && !SyncOtherConfigFolders
+                && !SyncNvdaProgramFiles)
+            {
+                SyncAddons = true;
+            }
+            if (WindowWidth < 500)
+            {
+                WindowWidth = 820;
+            }
+            if (WindowHeight < 360)
+            {
+                WindowHeight = 560;
+            }
+            UpdateCheckFrequency = NormalizeUpdateCheckFrequency(UpdateCheckFrequency);
+            SyncLegacySecondaryFolders();
         }
 
         public static string NormalizeUpdateCheckFrequency(string value)
@@ -193,6 +246,7 @@ namespace NvdaAddonSync
         public void Save()
         {
             Directory.CreateDirectory(SettingsFolder);
+            SyncLegacySecondaryFolders();
             var tempPath = SettingsPath + ".tmp";
             using (var stream = File.Create(tempPath))
             {
@@ -206,6 +260,27 @@ namespace NvdaAddonSync
             else
             {
                 File.Move(tempPath, SettingsPath);
+            }
+        }
+
+        public void SyncLegacySecondaryFolders()
+        {
+            if (SecondaryFolderProfiles == null)
+            {
+                SecondaryFolderProfiles = new List<SecondaryFolderProfile>();
+            }
+            SecondaryFolders = new List<string>();
+            foreach (var profile in SecondaryFolderProfiles)
+            {
+                if (profile == null)
+                {
+                    continue;
+                }
+                profile.Normalize();
+                if (!string.IsNullOrWhiteSpace(profile.Path))
+                {
+                    SecondaryFolders.Add(profile.Path);
+                }
             }
         }
     }

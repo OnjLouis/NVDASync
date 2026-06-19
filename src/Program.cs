@@ -9,7 +9,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.1.0";
+        internal const string Version = "1.2.0";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -89,13 +89,16 @@ namespace NvdaAddonSync
             if (options.SecondaryFolders.Count > 0)
             {
                 settings.SecondaryFolders.Clear();
+                settings.SecondaryFolderProfiles.Clear();
                 foreach (var folder in options.SecondaryFolders)
                 {
                     if (settings.SecondaryFolders.Count >= 5)
                     {
                         break;
                     }
-                    settings.SecondaryFolders.Add(SyncEngine.ResolveNvdaConfigDirectory(folder, "Secondary folder", false));
+                    var resolved = SyncEngine.ResolveNvdaConfigDirectory(folder, "Secondary folder", false);
+                    settings.SecondaryFolders.Add(resolved);
+                    settings.SecondaryFolderProfiles.Add(SecondaryFolderProfile.FromPath(resolved));
                 }
             }
             if (options.DeleteStaleOverride.HasValue)
