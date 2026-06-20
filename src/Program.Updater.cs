@@ -165,10 +165,13 @@ namespace NvdaAddonSync
         {
             try
             {
+                var legacyExe = Path.Combine(targetDir, "NvdaAddonSync.exe");
+                var preferredExe = PreferredExecutablePath(targetDir, legacyExe);
                 if (StartupRegistration.IsEnabledForDirectory(targetDir))
                 {
-                    StartupRegistration.SetEnabledForPath(true, PreferredExecutablePath(targetDir, Path.Combine(targetDir, "NvdaAddonSync.exe")));
+                    StartupRegistration.SetEnabledForPath(true, preferredExe);
                 }
+                NotificationIconRegistration.MigrateLegacyExecutablePath(legacyExe, preferredExe);
             }
             catch { }
         }

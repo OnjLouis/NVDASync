@@ -10,7 +10,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.3.0";
+        internal const string Version = "1.3.1";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -37,6 +37,7 @@ namespace NvdaAddonSync
             {
                 return;
             }
+            MigrateLegacyNotificationIconRegistration();
             TryDeleteLegacyExecutable(commandLine.DeleteOldExePath);
 
             if (commandLine.CloseRunning)
@@ -151,6 +152,18 @@ namespace NvdaAddonSync
                     Thread.Sleep(250);
                 }
             }
+        }
+
+        private static void MigrateLegacyNotificationIconRegistration()
+        {
+            var currentExe = Application.ExecutablePath;
+            if (string.Equals(Path.GetFileName(currentExe), "NvdaAddonSync.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            NotificationIconRegistration.MigrateLegacyExecutablePath(
+                Path.Combine(AppSettings.AppFolder, "NvdaAddonSync.exe"),
+                currentExe);
         }
 
         private static void TryDeleteBundledLegacyExecutable()
