@@ -36,6 +36,7 @@ namespace NvdaAddonSync
         private string currentStatus;
         private string watchedPrimaryFolder;
         private readonly bool forceStartMinimized;
+        private static event Action<string> MainWindowLogMessage;
 
         public MainForm()
             : this(false)
@@ -58,6 +59,7 @@ namespace NvdaAddonSync
             syncEngine.Message += AddLog;
             AddonPackService.Message += AddLog;
             PortableNvdaUpdateService.Message += AddLog;
+            MainWindowLogMessage += AddLog;
 
             syncDebounceTimer = new System.Windows.Forms.Timer();
             syncDebounceTimer.Interval = 1500;
@@ -210,6 +212,7 @@ namespace NvdaAddonSync
 
             Shown += OnShown;
             FormClosing += OnFormClosing;
+            FormClosed += delegate { MainWindowLogMessage -= AddLog; };
             Resize += OnResize;
         }
 
@@ -1300,7 +1303,7 @@ namespace NvdaAddonSync
             }
         }
 
-        private static void AppendLogFile(string message)
+        internal static void AppendLogFile(string message)
         {
             try
             {
@@ -1313,6 +1316,17 @@ namespace NvdaAddonSync
             catch
             {
             }
+        }
+
+        internal static void AppendMainLog(string message)
+        {
+            var handler = MainWindowLogMessage;
+            if (handler != null)
+            {
+                handler(message);
+                return;
+            }
+            AppendLogFile(message);
         }
 
         private static void RotateLogIfNeeded(string logPath)

@@ -10,7 +10,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.3.2";
+        internal const string Version = "1.3.3";
         internal const string Author = "Andre Louis";
 
         [STAThread]

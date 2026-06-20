@@ -36,6 +36,47 @@ namespace NvdaAddonSync
         public bool DestinationCreated { get; set; }
         public bool DestinationSectionOverwritten { get; set; }
         public string Message { get; set; }
+        public List<IniFileChangeStat> Stats { get; set; }
+
+        public IniSectionOperationResult()
+        {
+            Stats = new List<IniFileChangeStat>();
+        }
+    }
+
+    internal sealed class IniFileChangeStat
+    {
+        public string Path { get; set; }
+        public long SizeBefore { get; set; }
+        public long SizeAfter { get; set; }
+        public int LinesBefore { get; set; }
+        public int LinesAfter { get; set; }
+
+        public int LinesRemoved
+        {
+            get { return Math.Max(0, LinesBefore - LinesAfter); }
+        }
+
+        public string ToLogMessage()
+        {
+            return "Stats for " + Path + ":" + Environment.NewLine +
+                   "Size before edits: " + FormatSize(SizeBefore) + " (" + LinesBefore + " lines)" + Environment.NewLine +
+                   "Size after edits: " + FormatSize(SizeAfter) + " (" + LinesAfter + " lines)" + Environment.NewLine +
+                   "Lines removed: " + LinesRemoved;
+        }
+
+        private static string FormatSize(long bytes)
+        {
+            if (bytes < 1024)
+            {
+                return bytes + " bytes";
+            }
+            if (bytes < 1024 * 1024)
+            {
+                return (bytes / 1024.0).ToString("0.#") + " KB";
+            }
+            return (bytes / 1024.0 / 1024.0).ToString("0.##") + " MB";
+        }
     }
 
     internal static class NvdaIniSectionService
@@ -104,87 +145,110 @@ namespace NvdaAddonSync
 
         public static IniSectionOperationResult DeleteSection(string iniPath, string sectionName)
         {
+            return DeleteSections(iniPath, new[] { sectionName });
+        }
+
+        public static IniSectionOperationResult DeleteSections(string iniPath, IEnumerable<string> sectionNames)
+        {
             try
             {
+                var stats = CaptureFileStats(iniPath);
                 var parsed = ParseFile(iniPath);
-                var index = FindSectionIndex(parsed.Sections, sectionName);
-                if (index < 0)
+                var deleted = 0;
+                foreach (var sectionName in sectionNames)
                 {
-                    throw new InvalidOperationException("Section [" + sectionName + "] was not found.");
+                    var index = FindSectionIndex(parsed.Sections, sectionName);
+                    if (index < 0)
+                    {
+                        throw new InvalidOperationException("Section [" + sectionName + "] was not found.");
+                    }
+                    parsed.Sections.RemoveAt(index);
+                    deleted++;
                 }
-                parsed.Sections.RemoveAt(index);
                 WriteParsedFile(iniPath, parsed);
-                var message = "Deleted [" + sectionName + "] from " + iniPath;
+                stats = CompleteFileStats(stats, iniPath);
+                var message = "Deleted " + deleted + " section(s) from " + iniPath;
                 Notify(message);
-                return new IniSectionOperationResult { Message = message };
+                Notify(stats.ToLogMessage());
+                return new IniSectionOperationResult { Message = message, Stats = new List<IniFileChangeStat> { stats } };
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not delete [" + sectionName + "] from nvda.ini: " + ex.Message, ex);
+                throw new IOException("Could not delete selected section(s) from nvda.ini: " + ex.Message, ex);
             }
         }
 
         public static IniSectionOperationResult MoveSection(string sourceIniPath, string destinationIniPath, string sectionName, bool overwriteIfExists)
         {
+            return MoveSections(sourceIniPath, destinationIniPath, new[] { sectionName }, overwriteIfExists);
+        }
+
+        public static IniSectionOperationResult MoveSections(string sourceIniPath, string destinationIniPath, IEnumerable<string> sectionNames, bool overwriteIfExists)
+        {
             try
             {
                 var source = ParseFile(sourceIniPath);
-                var sourceIndex = FindSectionIndex(source.Sections, sectionName);
-                if (sourceIndex < 0)
+                var sectionsToMove = new List<IniSection>();
+                foreach (var sectionName in sectionNames)
                 {
-                    throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                    var sourceIndex = FindSectionIndex(source.Sections, sectionName);
+                    if (sourceIndex < 0)
+                    {
+                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                    }
+                    sectionsToMove.Add(CloneSection(source.Sections[sourceIndex]));
                 }
 
-                var sectionToMove = CloneSection(source.Sections[sourceIndex]);
                 var destinationCreated = false;
                 var overwritten = false;
+                var destinationStats = CaptureFileStats(destinationIniPath);
+                var sourceStats = CaptureFileStats(sourceIniPath);
 
+                NvdaIniParseResult destination;
                 if (File.Exists(destinationIniPath))
                 {
-                    var destination = ParseFile(destinationIniPath);
-                    var destinationIndex = FindSectionIndex(destination.Sections, sectionName);
-                    if (destinationIndex >= 0)
-                    {
-                        if (!overwriteIfExists)
-                        {
-                            throw new InvalidOperationException("The destination already contains [" + sectionName + "].");
-                        }
-                        destination.Sections[destinationIndex] = sectionToMove;
-                        overwritten = true;
-                    }
-                    else
-                    {
-                        destination.Sections.Add(sectionToMove);
-                    }
-                    WriteParsedFile(destinationIniPath, destination);
+                    destination = ParseFile(destinationIniPath);
                 }
                 else
                 {
-                    var destination = new NvdaIniParseResult();
+                    destination = new NvdaIniParseResult();
                     destination.LineEnding = source.LineEnding;
                     destination.HasTrailingNewline = true;
-                    destination.Sections.Add(sectionToMove);
                     var parent = Path.GetDirectoryName(destinationIniPath);
                     if (!string.IsNullOrWhiteSpace(parent))
                     {
                         Directory.CreateDirectory(parent);
                     }
-                    WriteParsedFile(destinationIniPath, destination);
                     destinationCreated = true;
                 }
 
-                source.Sections.RemoveAt(sourceIndex);
+                foreach (var sectionToMove in sectionsToMove)
+                {
+                    AddOrReplaceDestinationSection(destination, sectionToMove, overwriteIfExists, ref overwritten);
+                }
+                WriteParsedFile(destinationIniPath, destination);
+                destinationStats = CompleteFileStats(destinationStats, destinationIniPath);
+
+                foreach (var sectionToMove in sectionsToMove)
+                {
+                    var sourceIndex = FindSectionIndex(source.Sections, sectionToMove.Name);
+                    if (sourceIndex >= 0)
+                    {
+                        source.Sections.RemoveAt(sourceIndex);
+                    }
+                }
                 try
                 {
                     WriteParsedFile(sourceIniPath, source);
+                    sourceStats = CompleteFileStats(sourceStats, sourceIniPath);
                 }
                 catch (Exception ex)
                 {
-                    Notify("Moved [" + sectionName + "] to the destination, but could not remove it from the source: " + ex.Message);
+                    Notify("Moved selected section(s) to the destination, but could not remove them from the source: " + ex.Message);
                     throw;
                 }
 
-                var message = "Moved [" + sectionName + "] to " + destinationIniPath;
+                var message = "Moved " + sectionsToMove.Count + " section(s) to " + destinationIniPath;
                 if (overwritten)
                 {
                     message += " and replaced the destination copy.";
@@ -198,69 +262,73 @@ namespace NvdaAddonSync
                     message += ".";
                 }
                 Notify(message);
+                Notify(destinationStats.ToLogMessage());
+                Notify(sourceStats.ToLogMessage());
                 return new IniSectionOperationResult
                 {
                     DestinationCreated = destinationCreated,
                     DestinationSectionOverwritten = overwritten,
-                    Message = message
+                    Message = message,
+                    Stats = new List<IniFileChangeStat> { destinationStats, sourceStats }
                 };
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not move [" + sectionName + "] between nvda.ini files: " + ex.Message, ex);
+                throw new IOException("Could not move selected section(s) between nvda.ini files: " + ex.Message, ex);
             }
         }
 
         public static IniSectionOperationResult CopySection(string sourceIniPath, string destinationIniPath, string sectionName, bool overwriteIfExists)
         {
+            return CopySections(sourceIniPath, destinationIniPath, new[] { sectionName }, overwriteIfExists);
+        }
+
+        public static IniSectionOperationResult CopySections(string sourceIniPath, string destinationIniPath, IEnumerable<string> sectionNames, bool overwriteIfExists)
+        {
             try
             {
                 var source = ParseFile(sourceIniPath);
-                var sourceIndex = FindSectionIndex(source.Sections, sectionName);
-                if (sourceIndex < 0)
+                var sectionsToCopy = new List<IniSection>();
+                foreach (var sectionName in sectionNames)
                 {
-                    throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                    var sourceIndex = FindSectionIndex(source.Sections, sectionName);
+                    if (sourceIndex < 0)
+                    {
+                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                    }
+                    sectionsToCopy.Add(CloneSection(source.Sections[sourceIndex]));
                 }
 
-                var sectionToCopy = CloneSection(source.Sections[sourceIndex]);
                 var destinationCreated = false;
                 var overwritten = false;
+                var destinationStats = CaptureFileStats(destinationIniPath);
 
+                NvdaIniParseResult destination;
                 if (File.Exists(destinationIniPath))
                 {
-                    var destination = ParseFile(destinationIniPath);
-                    var destinationIndex = FindSectionIndex(destination.Sections, sectionName);
-                    if (destinationIndex >= 0)
-                    {
-                        if (!overwriteIfExists)
-                        {
-                            throw new InvalidOperationException("The destination already contains [" + sectionName + "].");
-                        }
-                        destination.Sections[destinationIndex] = sectionToCopy;
-                        overwritten = true;
-                    }
-                    else
-                    {
-                        destination.Sections.Add(sectionToCopy);
-                    }
-                    WriteParsedFile(destinationIniPath, destination);
+                    destination = ParseFile(destinationIniPath);
                 }
                 else
                 {
-                    var destination = new NvdaIniParseResult();
+                    destination = new NvdaIniParseResult();
                     destination.LineEnding = source.LineEnding;
                     destination.HasTrailingNewline = true;
-                    destination.Sections.Add(sectionToCopy);
                     var parent = Path.GetDirectoryName(destinationIniPath);
                     if (!string.IsNullOrWhiteSpace(parent))
                     {
                         Directory.CreateDirectory(parent);
                     }
-                    WriteParsedFile(destinationIniPath, destination);
                     destinationCreated = true;
                 }
 
-                var message = "Copied [" + sectionName + "] to " + destinationIniPath;
+                foreach (var sectionToCopy in sectionsToCopy)
+                {
+                    AddOrReplaceDestinationSection(destination, sectionToCopy, overwriteIfExists, ref overwritten);
+                }
+                WriteParsedFile(destinationIniPath, destination);
+                destinationStats = CompleteFileStats(destinationStats, destinationIniPath);
+
+                var message = "Copied " + sectionsToCopy.Count + " section(s) to " + destinationIniPath;
                 if (overwritten)
                 {
                     message += " and replaced the destination copy.";
@@ -274,17 +342,86 @@ namespace NvdaAddonSync
                     message += ".";
                 }
                 Notify(message);
+                Notify(destinationStats.ToLogMessage());
                 return new IniSectionOperationResult
                 {
                     DestinationCreated = destinationCreated,
                     DestinationSectionOverwritten = overwritten,
-                    Message = message
+                    Message = message,
+                    Stats = new List<IniFileChangeStat> { destinationStats }
                 };
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not copy [" + sectionName + "] between nvda.ini files: " + ex.Message, ex);
+                throw new IOException("Could not copy selected section(s) between nvda.ini files: " + ex.Message, ex);
             }
+        }
+
+        private static void AddOrReplaceDestinationSection(NvdaIniParseResult destination, IniSection section, bool overwriteIfExists, ref bool overwritten)
+        {
+            var destinationIndex = FindSectionIndex(destination.Sections, section.Name);
+            if (destinationIndex >= 0)
+            {
+                if (!overwriteIfExists)
+                {
+                    throw new InvalidOperationException("The destination already contains [" + section.Name + "].");
+                }
+                destination.Sections[destinationIndex] = CloneSection(section);
+                overwritten = true;
+            }
+            else
+            {
+                destination.Sections.Add(CloneSection(section));
+            }
+        }
+
+        private static IniFileChangeStat CaptureFileStats(string path)
+        {
+            var stat = new IniFileChangeStat { Path = path ?? string.Empty };
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                var info = new FileInfo(path);
+                stat.SizeBefore = info.Length;
+                stat.LinesBefore = CountPhysicalLines(File.ReadAllText(path, Encoding.UTF8));
+            }
+            return stat;
+        }
+
+        private static IniFileChangeStat CompleteFileStats(IniFileChangeStat stat, string path)
+        {
+            if (stat == null)
+            {
+                stat = new IniFileChangeStat();
+            }
+            stat.Path = path ?? stat.Path;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                var info = new FileInfo(path);
+                stat.SizeAfter = info.Length;
+                stat.LinesAfter = CountPhysicalLines(File.ReadAllText(path, Encoding.UTF8));
+            }
+            return stat;
+        }
+
+        private static int CountPhysicalLines(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return 0;
+            }
+            var count = 1;
+            for (var index = 0; index < text.Length; index++)
+            {
+                if (text[index] == '\n')
+                {
+                    count++;
+                }
+            }
+            if (text.EndsWith("\n", StringComparison.Ordinal))
+            {
+                count--;
+            }
+            return count;
         }
 
         private static bool TryReadTopLevelSectionName(string line, out string name)

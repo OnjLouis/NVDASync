@@ -698,7 +698,16 @@ namespace NvdaAddonSync
                 return true;
             }
             var difference = sourceInfo.LastWriteTimeUtc - targetInfo.LastWriteTimeUtc;
-            return Math.Abs(difference.TotalSeconds) > 2;
+            if (Math.Abs(difference.TotalSeconds) <= 2)
+            {
+                return false;
+            }
+            if (!FilesHaveSameContent(sourceFile, targetFile))
+            {
+                return true;
+            }
+            TryNormalizeTargetMetadata(sourceFile, targetFile);
+            return false;
         }
 
         private static void CopyFileAtomically(string sourceFile, string targetFile)
@@ -719,6 +728,50 @@ namespace NvdaAddonSync
             else
             {
                 File.Move(tempFile, targetFile);
+            }
+            TryNormalizeTargetMetadata(sourceFile, targetFile);
+        }
+
+        private static bool FilesHaveSameContent(string sourceFile, string targetFile)
+        {
+            const int BufferSize = 1024 * 64;
+            var sourceBuffer = new byte[BufferSize];
+            var targetBuffer = new byte[BufferSize];
+            using (var source = File.OpenRead(sourceFile))
+            using (var target = File.OpenRead(targetFile))
+            {
+                while (true)
+                {
+                    var sourceRead = source.Read(sourceBuffer, 0, sourceBuffer.Length);
+                    var targetRead = target.Read(targetBuffer, 0, targetBuffer.Length);
+                    if (sourceRead != targetRead)
+                    {
+                        return false;
+                    }
+                    if (sourceRead == 0)
+                    {
+                        return true;
+                    }
+                    for (var index = 0; index < sourceRead; index++)
+                    {
+                        if (sourceBuffer[index] != targetBuffer[index])
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void TryNormalizeTargetMetadata(string sourceFile, string targetFile)
+        {
+            try
+            {
+                File.SetLastWriteTimeUtc(targetFile, File.GetLastWriteTimeUtc(sourceFile));
+                File.SetAttributes(targetFile, File.GetAttributes(sourceFile));
+            }
+            catch
+            {
             }
         }
 

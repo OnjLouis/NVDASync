@@ -3,6 +3,23 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 & (Join-Path $root "Build.ps1")
 
+function Remove-TreeWithRetry($Path) {
+	for ($attempt = 1; $attempt -le 10; $attempt++) {
+		try {
+			if (Test-Path -LiteralPath $Path) {
+				Remove-Item -LiteralPath $Path -Recurse -Force
+			}
+			return
+		}
+		catch {
+			if ($attempt -eq 10) {
+				throw
+			}
+			Start-Sleep -Milliseconds 500
+		}
+	}
+}
+
 function Assert-UniqueMainWindowMnemonics {
 	$source = Get-Content -LiteralPath (Join-Path $root "src\MainForm.cs") -Raw
 	$matches = [regex]::Matches($source, '\.Text\s*=\s*"([^"]*&[^"]*)"')
@@ -130,7 +147,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.3.2"
+Assert-ChangelogClean "1.3.3"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -283,16 +300,17 @@ class Harness
 			Console.WriteLine("ini-nested-section-failed");
 			return 11;
 		}
-		NvdaIniSectionService.DeleteSection(sourceIni, "deleteMe");
+		NvdaIniSectionService.DeleteSections(sourceIni, new[] { "deleteMe", "parent" });
 		var afterDelete = System.IO.File.ReadAllText(sourceIni);
-		if (afterDelete.IndexOf("[deleteMe]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("schemaVersion = 10\r\n", StringComparison.Ordinal) < 0)
+		if (afterDelete.IndexOf("[deleteMe]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("[parent]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("schemaVersion = 10\r\n", StringComparison.Ordinal) < 0)
 		{
 			Console.WriteLine("ini-delete-failed");
 			return 12;
 		}
-		if (System.IO.Directory.GetFiles(args[10], "nvda*.ini").Length == 0)
+		var sourceBackupCount = System.IO.Directory.GetFiles(args[10], "nvda*.ini").Length - 1;
+		if (sourceBackupCount != 1)
 		{
-			Console.WriteLine("ini-backup-after-delete-failed");
+			Console.WriteLine("ini-backup-after-delete-failed count=" + sourceBackupCount);
 			return 15;
 		}
 		NvdaIniSectionService.CopySection(sourceIni, destinationIni, "keep", true);
@@ -318,7 +336,8 @@ class Harness
 			Console.WriteLine("ini-fresh-move-failed");
 			return 14;
 		}
-		if (System.IO.Directory.GetFiles(args[11], "nvda*.ini").Length == 0)
+		var destinationBackupCount = System.IO.Directory.GetFiles(args[11], "nvda*.ini").Length - 1;
+		if (destinationBackupCount == 0)
 		{
 			Console.WriteLine("ini-destination-backup-failed");
 			return 17;
@@ -344,6 +363,11 @@ class Harness
 	}
 	if (-not (Test-Path -LiteralPath (Join-Path $secondary "addons\addonA\manifest.ini"))) {
 		throw "Expected copied file was missing."
+	}
+	$sourceManifest = Get-Item -LiteralPath (Join-Path $primary "addons\addonA\manifest.ini")
+	$targetManifest = Get-Item -LiteralPath (Join-Path $secondary "addons\addonA\manifest.ini")
+	if ([Math]::Abs(($sourceManifest.LastWriteTimeUtc - $targetManifest.LastWriteTimeUtc).TotalSeconds) -gt 2) {
+		throw "Copied file timestamp was not preserved."
 	}
 	if (-not (Test-Path -LiteralPath (Join-Path $secondary "gestures.ini"))) {
 		throw "Expected gestures.ini to be copied."
@@ -394,6 +418,7 @@ class Harness
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.3.3</h3>',
 		'<h3>1.3.2</h3>',
 		'<h3>1.3.1</h3>',
 		'<h3>1.3.0</h3>',
@@ -536,14 +561,12 @@ class Harness
 	}
 	foreach ($runtimeFolder in @("Logs", "Settings")) {
 		$runtimePath = Join-Path $root ("portable\" + $runtimeFolder)
-		if (Test-Path -LiteralPath $runtimePath) {
-			Remove-Item -LiteralPath $runtimePath -Recurse -Force
-		}
+		Remove-TreeWithRetry $runtimePath
 	}
 	Write-Host "Smoke test passed."
 }
 finally {
 	if (Test-Path -LiteralPath $tempRoot) {
-		Remove-Item -LiteralPath $tempRoot -Recurse -Force
+		Remove-TreeWithRetry $tempRoot
 	}
 }

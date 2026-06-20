@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.3.2.</p>
+	<p>Current version: 1.3.3.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -263,6 +263,15 @@
 
 	<h2 id="changelog">Changelog</h2>
 
+	<h3>1.3.3</h3>
+	<ul>
+		<li>Improved the NVDA.ini cleanup tool with a clearer <code>nvda.ini</code> location picker for the primary folder, secondary folders, and custom folders.</li>
+		<li>Added a read-only preview for the selected NVDA.ini section so users can inspect a section before deleting, copying, or moving it.</li>
+		<li>Improved live NVDA handling and logging for NVDA.ini cleanup: the visible log and log file now record the requested section changes, NVDA close and reopen activity, backup creation, file size before and after edits, and line counts removed.</li>
+		<li>Fixed repeated sync writes caused by timestamp differences after atomic file replacement. Identical files are now recognised by content and their metadata is normalised instead of copied again.</li>
+		<li>Refined the workflow requested in <a href="https://github.com/OnjLouis/NVDASync/issues/2">GitHub issue #2</a> after follow-up testing, especially around safe live-profile edits and clearer audit output.</li>
+	</ul>
+
 	<h3>1.3.2</h3>
 	<ul>
 		<li>Added copy support to the NVDA.ini section cleanup tool so selected sections can be copied to a secondary without removing them from the source.</li>
@@ -277,7 +286,7 @@
 
 	<h3>1.3.0</h3>
 	<ul>
-		<li>Added an NVDA.ini section cleanup tool for moving or deleting orphaned top-level settings sections.</li>
+		<li>Added an NVDA.ini section cleanup tool for moving or deleting orphaned top-level settings sections. This closes <a href="https://github.com/OnjLouis/NVDASync/issues/2">GitHub issue #2</a>.</li>
 		<li>Added safer handling for nested NVDA.ini subsections so they remain with their parent section.</li>
 		<li>Renamed the application executable to <code>NVDASync.exe</code>, while preserving update compatibility for older builds.</li>
 		<li>Changed Windows startup registration to launch quietly in the notification area.</li>
