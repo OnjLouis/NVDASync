@@ -130,7 +130,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.3.1"
+Assert-ChangelogClean "1.3.2"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -290,6 +290,19 @@ class Harness
 			Console.WriteLine("ini-delete-failed");
 			return 12;
 		}
+		if (System.IO.Directory.GetFiles(args[10], "nvda*.ini").Length == 0)
+		{
+			Console.WriteLine("ini-backup-after-delete-failed");
+			return 15;
+		}
+		NvdaIniSectionService.CopySection(sourceIni, destinationIni, "keep", true);
+		var afterCopySource = System.IO.File.ReadAllText(sourceIni);
+		var afterCopyDestination = System.IO.File.ReadAllText(destinationIni);
+		if (afterCopySource.IndexOf("[keep]", StringComparison.Ordinal) < 0 || afterCopyDestination.IndexOf("[keep]", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("ini-copy-failed");
+			return 16;
+		}
 		NvdaIniSectionService.MoveSection(sourceIni, destinationIni, "moveMe", true);
 		var destinationText = System.IO.File.ReadAllText(destinationIni);
 		var sourceAfterMove = System.IO.File.ReadAllText(sourceIni);
@@ -304,6 +317,11 @@ class Harness
 		{
 			Console.WriteLine("ini-fresh-move-failed");
 			return 14;
+		}
+		if (System.IO.Directory.GetFiles(args[11], "nvda*.ini").Length == 0)
+		{
+			Console.WriteLine("ini-destination-backup-failed");
+			return 17;
 		}
 		Console.WriteLine("ini-section-service-ok");
 		return result.Errors == 0 ? 0 : 1;
@@ -376,6 +394,7 @@ class Harness
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.3.2</h3>',
 		'<h3>1.3.1</h3>',
 		'<h3>1.3.0</h3>',
 		'<h3>1.2.0</h3>',

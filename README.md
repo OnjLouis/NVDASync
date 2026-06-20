@@ -17,7 +17,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Unavailable removable-drive secondaries are skipped without interrupting the user, then retried every 60 seconds while auto-sync is enabled.
 - Manual sync is available from the main window or tray menu.
 - Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, orphaned `nvda.ini` section cleanup, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
-- The `nvda.ini` cleanup tool lists top-level sections in a chosen NVDA data folder and can delete them or move them into a configured secondary folder, keeping nested subsections with their parent.
+- The `nvda.ini` cleanup tool lists top-level sections in a chosen NVDA data folder and can delete, copy, or move them into a configured secondary folder, keeping nested subsections with their parent.
+- Existing `nvda.ini` files are backed up before cleanup writes, and live NVDA profile edits warn before proceeding because NVDA can overwrite external edits from memory.
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, auto-sync, Windows startup, start-minimized behavior, and update checks.

@@ -211,6 +211,82 @@ namespace NvdaAddonSync
             }
         }
 
+        public static IniSectionOperationResult CopySection(string sourceIniPath, string destinationIniPath, string sectionName, bool overwriteIfExists)
+        {
+            try
+            {
+                var source = ParseFile(sourceIniPath);
+                var sourceIndex = FindSectionIndex(source.Sections, sectionName);
+                if (sourceIndex < 0)
+                {
+                    throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                }
+
+                var sectionToCopy = CloneSection(source.Sections[sourceIndex]);
+                var destinationCreated = false;
+                var overwritten = false;
+
+                if (File.Exists(destinationIniPath))
+                {
+                    var destination = ParseFile(destinationIniPath);
+                    var destinationIndex = FindSectionIndex(destination.Sections, sectionName);
+                    if (destinationIndex >= 0)
+                    {
+                        if (!overwriteIfExists)
+                        {
+                            throw new InvalidOperationException("The destination already contains [" + sectionName + "].");
+                        }
+                        destination.Sections[destinationIndex] = sectionToCopy;
+                        overwritten = true;
+                    }
+                    else
+                    {
+                        destination.Sections.Add(sectionToCopy);
+                    }
+                    WriteParsedFile(destinationIniPath, destination);
+                }
+                else
+                {
+                    var destination = new NvdaIniParseResult();
+                    destination.LineEnding = source.LineEnding;
+                    destination.HasTrailingNewline = true;
+                    destination.Sections.Add(sectionToCopy);
+                    var parent = Path.GetDirectoryName(destinationIniPath);
+                    if (!string.IsNullOrWhiteSpace(parent))
+                    {
+                        Directory.CreateDirectory(parent);
+                    }
+                    WriteParsedFile(destinationIniPath, destination);
+                    destinationCreated = true;
+                }
+
+                var message = "Copied [" + sectionName + "] to " + destinationIniPath;
+                if (overwritten)
+                {
+                    message += " and replaced the destination copy.";
+                }
+                else if (destinationCreated)
+                {
+                    message += " and created the destination nvda.ini.";
+                }
+                else
+                {
+                    message += ".";
+                }
+                Notify(message);
+                return new IniSectionOperationResult
+                {
+                    DestinationCreated = destinationCreated,
+                    DestinationSectionOverwritten = overwritten,
+                    Message = message
+                };
+            }
+            catch (IOException ex)
+            {
+                throw new IOException("Could not copy [" + sectionName + "] between nvda.ini files: " + ex.Message, ex);
+            }
+        }
+
         private static bool TryReadTopLevelSectionName(string line, out string name)
         {
             name = null;
@@ -283,6 +359,11 @@ namespace NvdaAddonSync
             {
                 Directory.CreateDirectory(parent);
             }
+            if (File.Exists(path))
+            {
+                var backupPath = CreateBackup(path);
+                Notify("Backed up " + path + " to " + backupPath);
+            }
             var tempPath = path + ".nvdaSync.tmp";
             File.WriteAllText(tempPath, content, new UTF8Encoding(false));
             try
@@ -317,6 +398,21 @@ namespace NvdaAddonSync
                 {
                 }
             }
+        }
+
+        private static string CreateBackup(string path)
+        {
+            var folder = Path.GetDirectoryName(path);
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var backupPath = Path.Combine(folder, "nvda" + stamp + ".ini");
+            var counter = 2;
+            while (File.Exists(backupPath))
+            {
+                backupPath = Path.Combine(folder, "nvda" + stamp + "-" + counter + ".ini");
+                counter++;
+            }
+            File.Copy(path, backupPath, false);
+            return backupPath;
         }
 
         private static string BuildContent(NvdaIniParseResult parsed)

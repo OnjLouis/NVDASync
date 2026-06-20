@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -87,15 +88,21 @@ namespace NvdaAddonSync
 
             var destinationLabel = new Label();
             destinationLabel.AutoSize = true;
-            destinationLabel.Text = "Move destinat&ion";
+            destinationLabel.Text = "Copy/move destinat&ion";
             destinationLabel.Padding = new Padding(12, 6, 0, 0);
             actionsPanel.Controls.Add(destinationLabel);
 
             destinationComboBox = new ComboBox();
             destinationComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             destinationComboBox.Width = 360;
-            destinationComboBox.AccessibleName = "Move destination secondary folder";
+            destinationComboBox.AccessibleName = "Copy or move destination secondary folder";
             actionsPanel.Controls.Add(destinationComboBox);
+
+            var copyButton = new Button();
+            copyButton.Text = "&Copy selected";
+            copyButton.AutoSize = true;
+            copyButton.Click += delegate { CopySelectedSections(); };
+            actionsPanel.Controls.Add(copyButton);
 
             var moveButton = new Button();
             moveButton.Text = "&Move selected";
@@ -235,6 +242,13 @@ namespace NvdaAddonSync
             {
                 return;
             }
+            var relaunchNvda = PrepareForIniWrites(new[] { currentIniPath });
+            if (relaunchNvda == null)
+            {
+                AddLog("Delete cancelled.");
+                FocusLog();
+                return;
+            }
             foreach (var name in names)
             {
                 try
@@ -246,11 +260,22 @@ namespace NvdaAddonSync
                     AddLog("Delete failed for [" + name + "]: " + ex.Message);
                 }
             }
+            RelaunchNvda(relaunchNvda);
             LoadSections();
             FocusLog();
         }
 
+        private void CopySelectedSections()
+        {
+            CopyOrMoveSelectedSections(false);
+        }
+
         private void MoveSelectedSections()
+        {
+            CopyOrMoveSelectedSections(true);
+        }
+
+        private void CopyOrMoveSelectedSections(bool move)
         {
             var names = CheckedSectionNames();
             if (names.Count == 0)
@@ -280,11 +305,21 @@ namespace NvdaAddonSync
             var destinationIniPath = Path.Combine(destinationFolder, "nvda.ini");
             var conflicts = ExistingDestinationSections(destinationIniPath, names);
             var message = new StringBuilder();
-            message.AppendLine("Move " + names.Count + " section(s) from:");
+            message.AppendLine((move ? "Move " : "Copy ") + names.Count + " section(s) from:");
             message.AppendLine(currentIniPath);
             message.AppendLine();
             message.AppendLine("To:");
             message.AppendLine(destinationIniPath);
+            if (move)
+            {
+                message.AppendLine();
+                message.AppendLine("Move deletes the selected section(s) from the source after writing them to the destination.");
+            }
+            else
+            {
+                message.AppendLine();
+                message.AppendLine("Copy leaves the source nvda.ini unchanged.");
+            }
             if (conflicts.Count > 0)
             {
                 message.AppendLine();
@@ -294,24 +329,182 @@ namespace NvdaAddonSync
                     message.AppendLine("[" + conflict + "]");
                 }
             }
-            var confirmation = MessageBox.Show(this, message.ToString(), "Move nvda.ini sections", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            var confirmation = MessageBox.Show(this, message.ToString(), (move ? "Move" : "Copy") + " nvda.ini sections", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (confirmation != DialogResult.OK)
             {
+                return;
+            }
+            var pathsToWrite = move ? new[] { currentIniPath, destinationIniPath } : new[] { destinationIniPath };
+            var relaunchNvda = PrepareForIniWrites(pathsToWrite);
+            if (relaunchNvda == null)
+            {
+                AddLog((move ? "Move" : "Copy") + " cancelled.");
+                FocusLog();
                 return;
             }
             foreach (var name in names)
             {
                 try
                 {
-                    NvdaIniSectionService.MoveSection(currentIniPath, destinationIniPath, name, true);
+                    if (move)
+                    {
+                        NvdaIniSectionService.MoveSection(currentIniPath, destinationIniPath, name, true);
+                    }
+                    else
+                    {
+                        NvdaIniSectionService.CopySection(currentIniPath, destinationIniPath, name, true);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    AddLog("Move failed for [" + name + "]: " + ex.Message);
+                    AddLog((move ? "Move" : "Copy") + " failed for [" + name + "]: " + ex.Message);
                 }
             }
+            RelaunchNvda(relaunchNvda);
             LoadSections();
             FocusLog();
+        }
+
+        private List<string> PrepareForIniWrites(IEnumerable<string> iniPaths)
+        {
+            var nvdaExePaths = RunningNvdaExePathsForIniFiles(iniPaths);
+            if (nvdaExePaths.Count == 0)
+            {
+                return new List<string>();
+            }
+            var message = new StringBuilder();
+            message.AppendLine("NVDA appears to be running for one or more nvda.ini files that will be changed.");
+            message.AppendLine();
+            message.AppendLine("If the file is edited while NVDA is running, NVDA can write its in-memory settings back over these changes.");
+            message.AppendLine();
+            message.AppendLine("Close NVDA now, apply the changes, and relaunch NVDA afterward?");
+            var answer = MessageBox.Show(this, message.ToString(), "Close NVDA before changing nvda.ini", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (answer != DialogResult.Yes)
+            {
+                return null;
+            }
+            var closed = new List<string>();
+            foreach (var exePath in nvdaExePaths)
+            {
+                if (CloseRunningNvda(exePath))
+                {
+                    closed.Add(exePath);
+                }
+                else
+                {
+                    AddLog("Could not close NVDA cleanly: " + exePath);
+                    MessageBox.Show(this, "NVDA did not close cleanly. No changes were made." + Environment.NewLine + Environment.NewLine + exePath, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    RelaunchNvda(closed);
+                    return null;
+                }
+            }
+            return closed;
+        }
+
+        private static List<string> RunningNvdaExePathsForIniFiles(IEnumerable<string> iniPaths)
+        {
+            var result = new List<string>();
+            var liveInstalledIni = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "nvda", "nvda.ini");
+            foreach (var process in Process.GetProcessesByName("nvda"))
+            {
+                string exePath;
+                try
+                {
+                    exePath = process.MainModule.FileName;
+                }
+                catch
+                {
+                    continue;
+                }
+                foreach (var iniPath in iniPaths)
+                {
+                    if (string.IsNullOrWhiteSpace(iniPath))
+                    {
+                        continue;
+                    }
+                    if (string.Equals(Path.GetFullPath(iniPath), Path.GetFullPath(liveInstalledIni), StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddUniquePath(result, exePath);
+                        continue;
+                    }
+                    var configFolder = Path.GetDirectoryName(Path.GetFullPath(iniPath));
+                    if (string.Equals(Path.GetFileName(configFolder), "userConfig", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var portableRoot = Path.GetDirectoryName(configFolder);
+                        var portableExe = Path.Combine(portableRoot, "nvda.exe");
+                        if (string.Equals(Path.GetFullPath(portableExe), Path.GetFullPath(exePath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            AddUniquePath(result, exePath);
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
+        private static void AddUniquePath(List<string> paths, string path)
+        {
+            foreach (var existing in paths)
+            {
+                if (string.Equals(existing, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+            paths.Add(path);
+        }
+
+        private static bool CloseRunningNvda(string exePath)
+        {
+            var closed = true;
+            foreach (var process in Process.GetProcessesByName("nvda"))
+            {
+                string processPath;
+                try
+                {
+                    processPath = process.MainModule.FileName;
+                }
+                catch
+                {
+                    continue;
+                }
+                if (!string.Equals(processPath, exePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                try
+                {
+                    process.CloseMainWindow();
+                    if (!process.WaitForExit(15000))
+                    {
+                        closed = false;
+                    }
+                }
+                catch
+                {
+                    closed = false;
+                }
+            }
+            return closed;
+        }
+
+        private void RelaunchNvda(IEnumerable<string> exePaths)
+        {
+            foreach (var exePath in exePaths)
+            {
+                try
+                {
+                    if (File.Exists(exePath))
+                    {
+                        Process.Start(new ProcessStartInfo { FileName = exePath, WorkingDirectory = Path.GetDirectoryName(exePath), UseShellExecute = true });
+                        AddLog("Relaunched NVDA: " + exePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AddLog("Could not relaunch NVDA: " + ex.Message);
+                }
+            }
         }
 
         private List<string> ExistingDestinationSections(string destinationIniPath, List<string> names)
