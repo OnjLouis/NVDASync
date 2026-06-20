@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.2.0.</p>
+	<p>Current version: 1.3.0.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -24,7 +24,8 @@
 		<li><a href="#menus">Menus</a></li>
 		<li><a href="#preferences">Preferences</a></li>
 		<li><a href="#components">Sync Components</a></li>
-        <li><a href="#secondary-properties">Secondary Folder Properties</a></li>
+		<li><a href="#secondary-properties">Secondary Folder Properties</a></li>
+		<li><a href="#ini-section-cleanup">NVDA.ini Section Cleanup</a></li>
 		<li><a href="#addon-packs">Add-on Packs and Local Installs</a></li>
 		<li><a href="#sync-behaviour">Sync Behaviour</a></li>
 		<li><a href="#folder-selection">Folder Selection</a></li>
@@ -51,7 +52,7 @@
 			<tr><th>Menu</th><th>Commands</th></tr>
 		</thead>
 		<tbody>
-			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary, open properties for the selected secondary, remove the selected secondary, and validate the current configuration.</td></tr>
+			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary, open properties for the selected secondary, remove the selected secondary, validate the current configuration, and clean up orphaned top-level sections in <code>nvda.ini</code>.</td></tr>
 			<tr><td>Add-ons</td><td>Export an add-on pack from the primary folder, or install local add-ons into configured secondary folders.</td></tr>
 			<tr><td>Options</td><td>Open Preferences, save the visible log, minimise to the notification area, and exit.</td></tr>
 			<tr><td>Help</td><td>Open this manual, check for updates, open the GitHub project page, contact Andre, donate, and show About.</td></tr>
@@ -130,6 +131,11 @@
 	<p>The add-on mode choices are: sync all add-ons, update existing add-ons only, or do not sync add-ons. Existing-only mode updates matching add-on folders already present in the secondary, leaves target-only add-ons alone, and does not add new add-ons from the primary.</p>
 	<p>When portable NVDA program-file updates are enabled for a secondary, NVDA Sync updates the portable copy from the installed NVDA program folder. Before replacing files, it can create a ZIP backup beside the portable folder named like <code>nvda20260619-143000.zip</code>. Backups are enabled by default and can be turned off globally or per secondary folder. The backup excludes <code>userConfig</code>, <code>Settings</code>, <code>Logs</code>, and <code>Backups</code>.</p>
 	<p>Program-file updates first compare the installed NVDA program folder with the portable target. If nothing differs, no backup is created and no files are touched. They also refuse installed NVDA under Program Files, refuse folder pairs that contain each other, and refuse to update a portable copy while that copy of NVDA is running.</p>
+
+	<h2 id="ini-section-cleanup">NVDA.ini Section Cleanup</h2>
+	<p>The Folders menu includes <strong>Clean up orphaned nvda.ini sections</strong> for moving or deleting whole top-level sections from an NVDA configuration file. This is intended for cases where an add-on has been removed but its configuration section is still present in <code>nvda.ini</code>.</p>
+	<p>Choose the NVDA data folder to inspect. The tool lists only top-level sections such as <code>[addonName]</code>. Nested subsections such as <code>[[profile]]</code> remain attached to their parent section and are moved or deleted with it.</p>
+	<p>Deleting selected sections always asks for confirmation. Moving selected sections asks for confirmation, writes them into a configured secondary folder's <code>nvda.ini</code>, and replaces matching destination sections only after warning you. Content before the first top-level section is preserved and is not selectable.</p>
 
 	<h2 id="addon-packs">Add-on Packs and Local Installs</h2>
 	<p>The Add-ons menu contains tools for preparing or filling secondary NVDA copies without changing the running primary copy.</p>
@@ -211,24 +217,25 @@
 			<tr><th>Command</th><th>Effect</th></tr>
 		</thead>
 		<tbody>
-			<tr><td><code>NvdaAddonSync.exe --show</code></td><td>Show the running app from the same folder.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --close</code></td><td>Close the running app from the same folder.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --sync-running</code></td><td>Ask the running app from the same folder to sync now.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --sync</code></td><td>Run one sync without showing the window, using saved settings unless folders or components are supplied on the command line.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --primary "folder"</code></td><td>Set the primary NVDA or configuration folder for <code>--sync</code>.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --secondary "folder"</code></td><td>Add a secondary NVDA or configuration folder for <code>--sync</code>. This switch may be repeated up to five times.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --delete-stale</code></td><td>Delete stale files and folders from selected secondary components during <code>--sync</code>.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --no-delete-stale</code></td><td>Do not delete stale files and folders during <code>--sync</code>.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --component "id"</code></td><td>Sync one component. May be repeated. IDs are <code>addons</code>, <code>inputGestures</code>, <code>nvdaIni</code>, <code>speechDictionaries</code>, <code>configProfiles</code>, <code>otherConfigFiles</code>, and <code>otherConfigFolders</code>.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --all-components</code></td><td>Sync every supported component.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --export-addon-pack "file"</code></td><td>Export installed add-on metadata from the primary folder. Use <code>--primary</code> to override the saved primary folder.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --install-addons "folder"</code></td><td>Install local add-ons from a folder into secondary folders only. Use one or more <code>--secondary</code> switches to override saved secondary folders.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --exclude-python-cache</code></td><td>Skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --include-python-cache</code></td><td>Copy Python cache files.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --save</code></td><td>Save command-line folder choices, components, and options back to the app settings.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --apply-update ...</code></td><td>Internal updater command used by NVDA Sync when installing a GitHub release ZIP.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --version</code></td><td>Show version information.</td></tr>
-			<tr><td><code>NvdaAddonSync.exe --help</code></td><td>Show command-line help.</td></tr>
+			<tr><td><code>NVDASync.exe --show</code></td><td>Show the running app from the same folder.</td></tr>
+			<tr><td><code>NVDASync.exe --close</code></td><td>Close the running app from the same folder.</td></tr>
+			<tr><td><code>NVDASync.exe --sync-running</code></td><td>Ask the running app from the same folder to sync now.</td></tr>
+			<tr><td><code>NVDASync.exe --startup-minimized</code></td><td>Start quietly in the notification area. The Windows startup option uses this automatically.</td></tr>
+			<tr><td><code>NVDASync.exe --sync</code></td><td>Run one sync without showing the window, using saved settings unless folders or components are supplied on the command line.</td></tr>
+			<tr><td><code>NVDASync.exe --primary "folder"</code></td><td>Set the primary NVDA or configuration folder for <code>--sync</code>.</td></tr>
+			<tr><td><code>NVDASync.exe --secondary "folder"</code></td><td>Add a secondary NVDA or configuration folder for <code>--sync</code>. This switch may be repeated up to five times.</td></tr>
+			<tr><td><code>NVDASync.exe --delete-stale</code></td><td>Delete stale files and folders from selected secondary components during <code>--sync</code>.</td></tr>
+			<tr><td><code>NVDASync.exe --no-delete-stale</code></td><td>Do not delete stale files and folders during <code>--sync</code>.</td></tr>
+			<tr><td><code>NVDASync.exe --component "id"</code></td><td>Sync one component. May be repeated. IDs are <code>addons</code>, <code>inputGestures</code>, <code>nvdaIni</code>, <code>speechDictionaries</code>, <code>configProfiles</code>, <code>otherConfigFiles</code>, and <code>otherConfigFolders</code>.</td></tr>
+			<tr><td><code>NVDASync.exe --all-components</code></td><td>Sync every supported component.</td></tr>
+			<tr><td><code>NVDASync.exe --export-addon-pack "file"</code></td><td>Export installed add-on metadata from the primary folder. Use <code>--primary</code> to override the saved primary folder.</td></tr>
+			<tr><td><code>NVDASync.exe --install-addons "folder"</code></td><td>Install local add-ons from a folder into secondary folders only. Use one or more <code>--secondary</code> switches to override saved secondary folders.</td></tr>
+			<tr><td><code>NVDASync.exe --exclude-python-cache</code></td><td>Skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files.</td></tr>
+			<tr><td><code>NVDASync.exe --include-python-cache</code></td><td>Copy Python cache files.</td></tr>
+			<tr><td><code>NVDASync.exe --save</code></td><td>Save command-line folder choices, components, and options back to the app settings.</td></tr>
+			<tr><td><code>NVDASync.exe --apply-update ...</code></td><td>Internal updater command used by NVDA Sync when installing a GitHub release ZIP.</td></tr>
+			<tr><td><code>NVDASync.exe --version</code></td><td>Show version information.</td></tr>
+			<tr><td><code>NVDASync.exe --help</code></td><td>Show command-line help.</td></tr>
 		</tbody>
 	</table>
 
@@ -238,7 +245,7 @@
 			<tr><th>File or Folder</th><th>Purpose</th></tr>
 		</thead>
 		<tbody>
-			<tr><td><code>NvdaAddonSync.exe</code></td><td>The application.</td></tr>
+			<tr><td><code>NVDASync.exe</code></td><td>The application.</td></tr>
 			<tr><td><code>Manual.html</code></td><td>This manual.</td></tr>
 			<tr><td><code>LICENSE.txt</code></td><td>The application license.</td></tr>
 			<tr><td><code>Settings\settings.json</code></td><td>Settings saved beside the app. Moving the app folder moves its settings with it.</td></tr>
@@ -254,6 +261,14 @@
 	<p>Use <strong>Preferences &gt; Startup and updates</strong> to choose whether NVDA Sync checks for updates never, at startup, hourly, or daily. If <strong>Install updates silently when possible</strong> is enabled, automatic checks can install a newer ZIP release without prompting. Manual update checks still show the normal update dialog.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.3.0</h3>
+	<ul>
+		<li>Added an NVDA.ini section cleanup tool for moving or deleting orphaned top-level settings sections.</li>
+		<li>Added safer handling for nested NVDA.ini subsections so they remain with their parent section.</li>
+		<li>Renamed the application executable to <code>NVDASync.exe</code>, while preserving update compatibility for older builds.</li>
+		<li>Changed Windows startup registration to launch quietly in the notification area.</li>
+	</ul>
 
 	<h3>1.2.0</h3>
 	<ul>

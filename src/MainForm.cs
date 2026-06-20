@@ -35,9 +35,16 @@ namespace NvdaAddonSync
         private bool lastStartupRegistrationSetting;
         private string currentStatus;
         private string watchedPrimaryFolder;
+        private readonly bool forceStartMinimized;
 
         public MainForm()
+            : this(false)
         {
+        }
+
+        public MainForm(bool forceStartMinimized)
+        {
+            this.forceStartMinimized = forceStartMinimized;
             Text = Program.ProductName;
             MinimumSize = new Size(640, 420);
             StartPosition = FormStartPosition.Manual;
@@ -222,6 +229,8 @@ namespace NvdaAddonSync
             foldersMenu.DropDownItems.Add(removeItem);
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Validate settings", null, delegate { ValidateSettings(); FocusLog(); }));
+            foldersMenu.DropDownItems.Add(new ToolStripSeparator());
+            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up orphaned nvda.ini &sections...", null, delegate { OpenIniSectionManager(); }));
 
             var addonsMenu = new ToolStripMenuItem("&Add-ons");
             addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Export add-on pack...", null, delegate { ExportAddonPack(); }));
@@ -355,7 +364,7 @@ namespace NvdaAddonSync
 
         private void OnShown(object sender, EventArgs e)
         {
-            if (settings.StartMinimized)
+            if (forceStartMinimized || settings.StartMinimized)
             {
                 BeginInvoke(new Action(delegate { Hide(); }));
             }
@@ -798,6 +807,15 @@ namespace NvdaAddonSync
             secondaryListBox.SelectedIndex = index;
             SaveSettingsFromControls();
         }
+
+        private void OpenIniSectionManager()
+        {
+            using (var dialog = new NvdaIniSectionManagerForm(settings, GetPrimaryFolder()))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
         private void ResolvePrimaryFolder()
         {
             var value = GetPrimaryFolder();

@@ -3,7 +3,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $root "src"
 $portable = Join-Path $root "portable"
-$exe = Join-Path $portable "NvdaAddonSync.exe"
+$exe = Join-Path $portable "NVDASync.exe"
+$legacyExe = Join-Path $portable "NvdaAddonSync.exe"
 $compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if (-not (Test-Path $compiler)) {
@@ -37,6 +38,7 @@ if ($LASTEXITCODE -ne 0) {
 	throw "Build failed."
 }
 
+Copy-Item -LiteralPath $exe -Destination $legacyExe
 Copy-Item -LiteralPath (Join-Path $root "Manual.html") -Destination (Join-Path $portable "Manual.html")
 Copy-Item -LiteralPath (Join-Path $root "LICENSE.txt") -Destination (Join-Path $portable "LICENSE.txt")
 

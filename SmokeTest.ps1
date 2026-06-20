@@ -130,7 +130,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.2.0"
+Assert-ChangelogClean "1.3.0"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -145,6 +145,9 @@ $componentPrimary = Join-Path $tempRoot "componentPrimary\userConfig"
 $componentSecondaryAddons = Join-Path $tempRoot "componentSecondary\userConfig\addons"
 $addonInstallSource = Join-Path $tempRoot "addonInstallSource"
 $addonInstallTarget = Join-Path $tempRoot "addonInstallTarget"
+$iniSource = Join-Path $tempRoot "iniSource"
+$iniDestination = Join-Path $tempRoot "iniDestination"
+$iniFreshDestination = Join-Path $tempRoot "iniFreshDestination"
 $packExport = Join-Path $tempRoot "addon-pack.json"
 $usedDrives = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() }
 $missingDriveLetter = ([char[]](90..68 | ForEach-Object { [char]$_ }) | Where-Object { $usedDrives -notcontains ([string]$_) } | Select-Object -First 1)
@@ -170,6 +173,9 @@ try {
 	New-Item -ItemType Directory -Path (Join-Path $addonInstallSource "folderAddon\__pycache__") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $addonInstallSource "archiveAddonBuild") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $addonInstallTarget "userConfig\addons\oldName") -Force | Out-Null
+	New-Item -ItemType Directory -Path $iniSource -Force | Out-Null
+	New-Item -ItemType Directory -Path $iniDestination -Force | Out-Null
+	New-Item -ItemType Directory -Path $iniFreshDestination -Force | Out-Null
 	Set-Content -LiteralPath (Join-Path $portableNvda "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\gestures.ini") -Value "cli gestures" -Encoding UTF8
@@ -188,6 +194,8 @@ try {
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "folderAddon\__pycache__\globalPlugin.pyc") -Value "cache" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\manifest.ini") -Value "name = archiveAddon`nsummary = Archive Add-on`nversion = 1.0" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\addon.py") -Value "archive" -Encoding UTF8
+	[IO.File]::WriteAllText((Join-Path $iniSource "nvda.ini"), "schemaVersion = 10`r`n[keep]`r`na = 1`r`n[parent]`r`n[[child]]`r`nvalue = yes`r`n[deleteMe]`r`nold = yes`r`n[moveMe]`r`nsource = yes`r`n[freshMove]`r`nz = 9`r`n", [Text.UTF8Encoding]::new($false))
+	[IO.File]::WriteAllText((Join-Path $iniDestination "nvda.ini"), "[moveMe]`ndestination = old`n[destKeep]`nb = 2`n", [Text.UTF8Encoding]::new($false))
 	$archiveZip = Join-Path $addonInstallSource "archiveAddon.zip"
 	Compress-Archive -Path (Join-Path $addonInstallSource "archiveAddonBuild\*") -DestinationPath $archiveZip -Force
 	Move-Item -LiteralPath $archiveZip -Destination (Join-Path $addonInstallSource "archiveAddon.nvda-addon") -Force
@@ -260,6 +268,44 @@ class Harness
 			return 9;
 		}
 		Console.WriteLine("addon-install-ok");
+		var sourceIni = System.IO.Path.Combine(args[10], "nvda.ini");
+		var destinationIni = System.IO.Path.Combine(args[11], "nvda.ini");
+		var freshDestinationIni = System.IO.Path.Combine(args[12], "nvda.ini");
+		var parsed = NvdaIniSectionService.ParseFile(sourceIni);
+		if (parsed.PreambleLines.Count != 1 || parsed.Sections.Count != 5)
+		{
+			Console.WriteLine("ini-parse-count-failed preamble=" + parsed.PreambleLines.Count + " sections=" + parsed.Sections.Count);
+			return 10;
+		}
+		var parent = parsed.Sections.Find(section => section.Name == "parent");
+		if (parent == null || !parent.RawLines.Contains("[[child]]"))
+		{
+			Console.WriteLine("ini-nested-section-failed");
+			return 11;
+		}
+		NvdaIniSectionService.DeleteSection(sourceIni, "deleteMe");
+		var afterDelete = System.IO.File.ReadAllText(sourceIni);
+		if (afterDelete.IndexOf("[deleteMe]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("schemaVersion = 10\r\n", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("ini-delete-failed");
+			return 12;
+		}
+		NvdaIniSectionService.MoveSection(sourceIni, destinationIni, "moveMe", true);
+		var destinationText = System.IO.File.ReadAllText(destinationIni);
+		var sourceAfterMove = System.IO.File.ReadAllText(sourceIni);
+		if (sourceAfterMove.IndexOf("[moveMe]", StringComparison.Ordinal) >= 0 || destinationText.IndexOf("source = yes", StringComparison.Ordinal) < 0 || destinationText.IndexOf("destination = old", StringComparison.Ordinal) >= 0 || destinationText.IndexOf("[destKeep]", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("ini-move-overwrite-failed");
+			return 13;
+		}
+		NvdaIniSectionService.MoveSection(sourceIni, freshDestinationIni, "freshMove", false);
+		var freshText = System.IO.File.ReadAllText(freshDestinationIni);
+		if (freshText.IndexOf("schemaVersion", StringComparison.Ordinal) >= 0 || freshText.IndexOf("[freshMove]", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("ini-fresh-move-failed");
+			return 14;
+		}
+		Console.WriteLine("ini-section-service-ok");
 		return result.Errors == 0 ? 0 : 1;
 	}
 }
@@ -270,11 +316,11 @@ class Harness
 		$compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
 	}
 	$testExe = Join-Path $tempRoot "Harness.exe"
-	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SecondaryFolderProfile.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\PortableNvdaUpdateService.cs") (Join-Path $root "src\AddonPackService.cs") $harness
+	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SecondaryFolderProfile.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\PortableNvdaUpdateService.cs") (Join-Path $root "src\AddonPackService.cs") (Join-Path $root "src\NvdaIniSectionService.cs") $harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
-	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget
+	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget $iniSource $iniDestination $iniFreshDestination
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness failed."
 	}
@@ -326,9 +372,11 @@ class Harness
 		'<h2 id="menus">Menus</h2>',
 		'<h2 id="preferences">Preferences</h2>',
 		'<h2 id="secondary-properties">Secondary Folder Properties</h2>',
+		'<h2 id="ini-section-cleanup">NVDA.ini Section Cleanup</h2>',
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.3.0</h3>',
 		'<h3>1.2.0</h3>',
 		'<h3>1.1.0</h3>',
 		'<h3>1.0.0</h3>',
@@ -339,7 +387,10 @@ class Harness
 		}
 	}
 
-	$builtExe = Join-Path $root "portable\NvdaAddonSync.exe"
+	$builtExe = Join-Path $root "portable\NVDASync.exe"
+	if (-not (Test-Path -LiteralPath (Join-Path $root "portable\NvdaAddonSync.exe"))) {
+		throw "Legacy updater compatibility executable missing from portable output."
+	}
 	$cliRun = Start-Process -FilePath $builtExe -ArgumentList @(
 		"--sync",
 		"--primary", $cliPrimary,
@@ -438,6 +489,12 @@ class Harness
 	}
 	if (-not (Test-Path -LiteralPath (Join-Path $updateTarget "Logs\Update.log"))) {
 		throw "Local updater did not write Update.log."
+	}
+	if (Test-Path -LiteralPath (Join-Path $updateTarget "NvdaAddonSync.exe")) {
+		throw "Local updater did not remove legacy NvdaAddonSync.exe."
+	}
+	if (-not (Test-Path -LiteralPath (Join-Path $updateTarget "NVDASync.exe"))) {
+		throw "Local updater did not install NVDASync.exe."
 	}
 
 	$guiProcess = Start-Process -FilePath $builtExe -PassThru

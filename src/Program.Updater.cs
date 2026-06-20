@@ -69,7 +69,7 @@ namespace NvdaAddonSync
                 var source = FindUpdateSourceFolder(stage);
                 if (string.IsNullOrWhiteSpace(source))
                 {
-                    throw new InvalidOperationException("The update ZIP does not contain NvdaAddonSync.exe.");
+                    throw new InvalidOperationException("The update ZIP does not contain NVDASync.exe.");
                 }
 
                 WriteUpdateHistory(targetDir, "Applying files.");
@@ -93,6 +93,8 @@ namespace NvdaAddonSync
                     }
                 }
                 TryDeleteFile(Path.Combine(targetDir, "README.md"));
+                TryDeleteFile(Path.Combine(targetDir, "NvdaAddonSync.exe"));
+                UpdateStartupRegistrationAfterUpdate(targetDir);
                 RemoveEmptyDirectory(backupRoot);
                 CleanupEmptyBackupFolders(targetDir);
             }
@@ -108,7 +110,7 @@ namespace NvdaAddonSync
             }
 
             WriteUpdateHistory(targetDir, "Update applied. Restarting NVDA Sync.");
-            TryRestartUpdatedApp(exePath, targetDir);
+            TryRestartUpdatedApp(PreferredExecutablePath(targetDir, exePath), targetDir);
         }
 
         private static bool IsPreservedRuntimeItem(string name)
@@ -140,13 +142,35 @@ namespace NvdaAddonSync
 
         private static string FindUpdateSourceFolder(string stage)
         {
-            var direct = Path.Combine(stage, "NvdaAddonSync.exe");
+            var direct = Path.Combine(stage, "NVDASync.exe");
             if (File.Exists(direct))
             {
                 return stage;
             }
-            var candidates = Directory.GetFiles(stage, "NvdaAddonSync.exe", SearchOption.AllDirectories);
+            var candidates = Directory.GetFiles(stage, "NVDASync.exe", SearchOption.AllDirectories);
+            if (candidates.Length == 0)
+            {
+                candidates = Directory.GetFiles(stage, "NvdaAddonSync.exe", SearchOption.AllDirectories);
+            }
             return candidates.Length == 0 ? string.Empty : Path.GetDirectoryName(candidates[0]);
+        }
+
+        private static string PreferredExecutablePath(string targetDir, string fallbackExePath)
+        {
+            var preferred = Path.Combine(targetDir, "NVDASync.exe");
+            return File.Exists(preferred) ? preferred : fallbackExePath;
+        }
+
+        private static void UpdateStartupRegistrationAfterUpdate(string targetDir)
+        {
+            try
+            {
+                if (StartupRegistration.IsEnabledForDirectory(targetDir))
+                {
+                    StartupRegistration.SetEnabledForPath(true, PreferredExecutablePath(targetDir, Path.Combine(targetDir, "NvdaAddonSync.exe")));
+                }
+            }
+            catch { }
         }
 
         private static void WaitForProcessExit(int processId)

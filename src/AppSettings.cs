@@ -164,6 +164,7 @@ namespace NvdaAddonSync
 
         private void NormalizeAfterLoad()
         {
+            var loadedSettingsVersion = SettingsVersion;
             if (SecondaryFolders == null)
             {
                 SecondaryFolders = new List<string>();
@@ -193,21 +194,21 @@ namespace NvdaAddonSync
             {
                 PrimaryFolder = "";
             }
-            if (SettingsVersion < 1)
+            if (loadedSettingsVersion < 1)
             {
                 SyncAddons = true;
                 ExcludePythonCache = true;
             }
-            SettingsVersion = 2;
             if (string.IsNullOrWhiteSpace(DefaultAddonMode))
             {
                 DefaultAddonMode = AddonSyncMode.All;
             }
             DefaultAddonMode = AddonSyncMode.Normalize(DefaultAddonMode);
-            if (SettingsVersion < 2)
+            if (loadedSettingsVersion < 2)
             {
                 CreateProgramBackups = true;
             }
+            SettingsVersion = 2;
             if (!SyncAddons
                 && !SyncInputGestures
                 && !SyncNvdaIni

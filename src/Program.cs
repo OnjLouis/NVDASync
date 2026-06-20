@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
@@ -9,7 +10,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.2.0";
+        internal const string Version = "1.3.0";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -32,6 +33,11 @@ namespace NvdaAddonSync
                 MessageBox.Show(ProductName + " " + Version + Environment.NewLine + "Author: " + Author, ProductName, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            if (MigrateLegacyExecutableIfNeeded(args))
+            {
+                return;
+            }
+            TryDeleteLegacyExecutable(commandLine.DeleteOldExePath);
 
             if (commandLine.CloseRunning)
             {
@@ -63,6 +69,7 @@ namespace NvdaAddonSync
                 Environment.ExitCode = RunCommandLineAddonInstall(commandLine);
                 return;
             }
+            TryDeleteBundledLegacyExecutable();
 
             bool created;
             using (var mutex = new Mutex(true, AppCommands.MutexName, out created))
@@ -75,8 +82,84 @@ namespace NvdaAddonSync
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new MainForm());
+                Application.Run(new MainForm(commandLine.StartupLaunch));
             }
+        }
+
+        private static bool MigrateLegacyExecutableIfNeeded(string[] originalArgs)
+        {
+            var currentExe = Application.ExecutablePath;
+            if (!string.Equals(Path.GetFileName(currentExe), "NvdaAddonSync.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            var preferredExe = Path.Combine(AppSettings.AppFolder, "NVDASync.exe");
+            if (!File.Exists(preferredExe))
+            {
+                return false;
+            }
+            try
+            {
+                var arguments = new List<string>(originalArgs ?? new string[0]);
+                arguments.Add("--delete-old-exe");
+                arguments.Add(currentExe);
+                if (!arguments.Exists(arg => string.Equals(arg, "--startup-minimized", StringComparison.OrdinalIgnoreCase)))
+                {
+                    arguments.Add("--startup-minimized");
+                }
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = preferredExe,
+                    Arguments = CommandLineOptions.JoinArguments(arguments),
+                    WorkingDirectory = AppSettings.AppFolder,
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void TryDeleteLegacyExecutable(string oldExePath)
+        {
+            if (string.IsNullOrWhiteSpace(oldExePath))
+            {
+                return;
+            }
+            if (string.Equals(oldExePath, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            if (!string.Equals(Path.GetFileName(oldExePath), "NvdaAddonSync.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(oldExePath))
+                    {
+                        File.Delete(oldExePath);
+                    }
+                    return;
+                }
+                catch
+                {
+                    Thread.Sleep(250);
+                }
+            }
+        }
+
+        private static void TryDeleteBundledLegacyExecutable()
+        {
+            if (string.Equals(Path.GetFileName(Application.ExecutablePath), "NvdaAddonSync.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            TryDeleteLegacyExecutable(Path.Combine(AppSettings.AppFolder, "NvdaAddonSync.exe"));
         }
 
         private static int RunCommandLineSync(CommandLineOptions options)
@@ -224,9 +307,11 @@ namespace NvdaAddonSync
         public bool CloseRunning { get; private set; }
         public bool ShowRunning { get; private set; }
         public bool SyncRunning { get; private set; }
+        public bool StartupLaunch { get; private set; }
         public bool SyncOnce { get; private set; }
         public bool SaveSettings { get; private set; }
         public string PrimaryFolder { get; private set; }
+        public string DeleteOldExePath { get; private set; }
         public string ExportAddonPackFile { get; private set; }
         public string InstallAddonsFolder { get; private set; }
         public bool? DeleteStaleOverride { get; private set; }
@@ -265,6 +350,13 @@ namespace NvdaAddonSync
                         break;
                     case "--sync-running":
                         options.SyncRunning = true;
+                        break;
+                    case "--startup-minimized":
+                    case "--startup":
+                        options.StartupLaunch = true;
+                        break;
+                    case "--delete-old-exe":
+                        options.DeleteOldExePath = RequireValue(args, ref i, arg);
                         break;
                     case "--sync":
                         options.SyncOnce = true;
@@ -350,6 +442,7 @@ namespace NvdaAddonSync
                     "--show                 Show the running app from this folder.",
                     "--close                Close the running app from this folder.",
                     "--sync-running         Ask the running app to sync now.",
+                    "--startup-minimized    Start quietly in the notification area.",
                     "--sync                 Run one sync without showing the UI.",
                     "--primary <folder>     Primary NVDA or add-ons folder for --sync.",
                     "--secondary <folder>   Secondary NVDA or add-ons folder. May be repeated up to five times.",
@@ -366,6 +459,29 @@ namespace NvdaAddonSync
                     "--help                 Show this help."
                 });
             }
+        }
+
+        public static string JoinArguments(IEnumerable<string> arguments)
+        {
+            var parts = new List<string>();
+            foreach (var argument in arguments)
+            {
+                parts.Add(QuoteArgument(argument));
+            }
+            return string.Join(" ", parts.ToArray());
+        }
+
+        private static string QuoteArgument(string value)
+        {
+            if (value == null)
+            {
+                return "\"\"";
+            }
+            if (value.Length == 0 || value.IndexOfAny(new[] { ' ', '\t', '"' }) >= 0)
+            {
+                return "\"" + value.Replace("\"", "\\\"") + "\"";
+            }
+            return value;
         }
     }
 }
