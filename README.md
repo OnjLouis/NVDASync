@@ -10,7 +10,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Settings are stored beside the app in `Settings\settings.json`.
 - Folder pickers accept an NVDA folder, portable NVDA folder, NVDA configuration folder, or known component folder.
 - The primary folder is shown read-only and can be chosen with Browse or found with Detect.
-- Supported components are add-ons, input gestures through `gestures.ini`, `nvda.ini`, speech dictionaries, configuration profiles, other root configuration files, other root configuration folders, and optional portable NVDA program-file updates.
+- Supported components are add-ons, input gestures through `gestures.ini`, `nvda.ini`, speech dictionaries, configuration profiles with `profileTriggers.ini`, other root configuration files, other root configuration folders, and optional portable NVDA program-file updates.
 - Add-ons are selected by default; add-on sync can copy all add-ons, update only add-ons already present in a secondary, or be disabled per target. Potentially machine-specific configuration is opt-in.
 - Python cache files are excluded by default.
 - Auto-sync watches the primary folder and pushes changes after a 1.5 second debounce.

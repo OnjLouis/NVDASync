@@ -163,7 +163,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.3.4"
+Assert-ChangelogClean "1.3.5"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -195,6 +195,7 @@ $missingSecondary = "$missingDriveLetter`:\nvda"
 try {
 	New-Item -ItemType Directory -Path (Join-Path $primary "addons\addonA") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $primary "addons\addonA\__pycache__") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $primary "profiles") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $primary "sonata\voices") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $secondary "addons\oldAddon") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $secondary "addons\addonA\__pycache__") -Force | Out-Null
@@ -221,9 +222,12 @@ try {
 	Set-Content -LiteralPath (Join-Path $primary "gestures.ini") -Value "gestures" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\manifest.ini") -Value "name = addonA" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\__pycache__\module.pyc") -Value "cache" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $primary "profiles\Work.ini") -Value "[speech]`nrate = 40" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $primary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:notepad = Work" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "sonata\voices\kirsten.txt") -Value "voice data" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\oldAddon\manifest.ini") -Value "stale" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\addonA\__pycache__\old.pyc") -Value "old cache" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $secondary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:stale = Old" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "oldAddonData\stale.txt") -Value "old data" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimaryAddons "addonB\manifest.ini") -Value "name = addonB" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\sonata\voice.txt") -Value "cli voice" -Encoding UTF8
@@ -295,6 +299,20 @@ class Harness
 			return 7;
 		}
 		Console.WriteLine("component-folder-sync-ok");
+		var profileResult = engine.Sync(args[0], new[] { args[1] }, new SyncOptions { DeleteStaleItems = true, Components = new System.Collections.Generic.List<SyncComponent> { SyncComponent.ConfigProfiles } });
+		if (profileResult.Errors != 0 || !System.IO.File.Exists(System.IO.Path.Combine(args[1], "profiles", "Work.ini")) || !System.IO.File.Exists(System.IO.Path.Combine(args[1], "profileTriggers.ini")))
+		{
+			Console.WriteLine("profile-trigger-sync-failed errors=" + profileResult.Errors);
+			return 27;
+		}
+		System.IO.File.Delete(System.IO.Path.Combine(args[0], "profileTriggers.ini"));
+		var profileStaleResult = engine.Sync(args[0], new[] { args[1] }, new SyncOptions { DeleteStaleItems = true, Components = new System.Collections.Generic.List<SyncComponent> { SyncComponent.ConfigProfiles } });
+		if (profileStaleResult.Errors != 0 || System.IO.File.Exists(System.IO.Path.Combine(args[1], "profileTriggers.ini")))
+		{
+			Console.WriteLine("profile-trigger-stale-delete-failed errors=" + profileStaleResult.Errors);
+			return 28;
+		}
+		Console.WriteLine("profile-trigger-sync-ok");
 		AddonPackService.ExportPackFile(args[0], args[7]);
 		if (!System.IO.File.Exists(args[7]) || System.IO.File.ReadAllText(args[7]).IndexOf("addonA", StringComparison.OrdinalIgnoreCase) < 0)
 		{
@@ -505,6 +523,7 @@ class Harness
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.3.5</h3>',
 		'<h3>1.3.4</h3>',
 		'<h3>1.3.3</h3>',
 		'<h3>1.3.2</h3>',

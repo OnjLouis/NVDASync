@@ -114,7 +114,8 @@ namespace NvdaAddonSync
         {
             "gestures.ini",
             "inputGestures.ini",
-            "nvda.ini"
+            "nvda.ini",
+            "profileTriggers.ini"
         };
 
         private static readonly HashSet<string> ReservedRootConfigDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -230,7 +231,26 @@ namespace NvdaAddonSync
             {
                 DeleteStaleEntries(source, target, result, options);
             }
+            if (component == SyncComponent.ConfigProfiles)
+            {
+                SyncProfileTriggers(primaryFolder, targetFolder, result, options);
+            }
             result.ComponentsSynced++;
+        }
+
+        private void SyncProfileTriggers(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options)
+        {
+            var sourceFile = Path.Combine(primaryFolder, "profileTriggers.ini");
+            var targetFile = Path.Combine(targetFolder, "profileTriggers.ini");
+            if (File.Exists(sourceFile))
+            {
+                CopyOneFile(primaryFolder, sourceFile, targetFile, result, options.CancellationToken);
+                return;
+            }
+            if (options.DeleteStaleItems && File.Exists(targetFile))
+            {
+                DeleteFile(targetFolder, targetFile, result);
+            }
         }
 
 
