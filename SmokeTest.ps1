@@ -20,6 +20,19 @@ function Remove-TreeWithRetry($Path) {
 	}
 }
 
+function Remove-NotifyIconEntriesForPathPrefix($Prefix) {
+	$rootPath = 'HKCU:\Control Panel\NotifyIconSettings'
+	if (-not (Test-Path -LiteralPath $rootPath)) {
+		return
+	}
+	Get-ChildItem -LiteralPath $rootPath -ErrorAction SilentlyContinue | ForEach-Object {
+		$props = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+		if ($props -and $props.ExecutablePath -and $props.ExecutablePath.IndexOf($Prefix, [StringComparison]::OrdinalIgnoreCase) -eq 0) {
+			Remove-Item -LiteralPath $_.PSPath -Recurse -Force
+		}
+	}
+}
+
 function Assert-UniqueMainWindowMnemonics {
 	$source = Get-Content -LiteralPath (Join-Path $root "src\MainForm.cs") -Raw
 	$matches = [regex]::Matches($source, '\.Text\s*=\s*"([^"]*&[^"]*)"')
@@ -104,10 +117,13 @@ function Assert-ShortcutSource {
 		'Keys.Control | Keys.F1',
 		'Keys.Control | Keys.Oemcomma',
 		'keyData == Keys.Enter && secondaryListBox.Focused',
-		'keyData == Keys.Delete && secondaryListBox.Focused'
+		'keyData == Keys.Delete && secondaryListBox.Focused',
+		'InstanceStateStore.IsSameRunningFolder',
+		'AppCommands.Signal(AppCommand.Close, previous.AppFolder)'
 	)) {
-		if ($mainSource -notlike "*$required*") {
-			throw "MainForm.cs missing expected shortcut source: $required"
+		$source = if ($required -like 'InstanceStateStore*' -or $required -like 'AppCommands.Signal*') { Get-Content -LiteralPath (Join-Path $root "src\Program.cs") -Raw } else { $mainSource }
+		if ($source -notlike "*$required*") {
+			throw "Source missing expected shortcut or instance-control source: $required"
 		}
 	}
 	Write-Host "shortcut-source-ok"
@@ -147,7 +163,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.3.3"
+Assert-ChangelogClean "1.3.4"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -165,6 +181,9 @@ $addonInstallTarget = Join-Path $tempRoot "addonInstallTarget"
 $iniSource = Join-Path $tempRoot "iniSource"
 $iniDestination = Join-Path $tempRoot "iniDestination"
 $iniFreshDestination = Join-Path $tempRoot "iniFreshDestination"
+$gestureSource = Join-Path $tempRoot "gestureSource"
+$gestureDestination = Join-Path $tempRoot "gestureDestination"
+$gestureFreshDestination = Join-Path $tempRoot "gestureFreshDestination"
 $packExport = Join-Path $tempRoot "addon-pack.json"
 $usedDrives = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() }
 $missingDriveLetter = ([char[]](90..68 | ForEach-Object { [char]$_ }) | Where-Object { $usedDrives -notcontains ([string]$_) } | Select-Object -First 1)
@@ -193,6 +212,9 @@ try {
 	New-Item -ItemType Directory -Path $iniSource -Force | Out-Null
 	New-Item -ItemType Directory -Path $iniDestination -Force | Out-Null
 	New-Item -ItemType Directory -Path $iniFreshDestination -Force | Out-Null
+	New-Item -ItemType Directory -Path $gestureSource -Force | Out-Null
+	New-Item -ItemType Directory -Path $gestureDestination -Force | Out-Null
+	New-Item -ItemType Directory -Path $gestureFreshDestination -Force | Out-Null
 	Set-Content -LiteralPath (Join-Path $portableNvda "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\gestures.ini") -Value "cli gestures" -Encoding UTF8
@@ -213,6 +235,8 @@ try {
 	Set-Content -LiteralPath (Join-Path $addonInstallSource "archiveAddonBuild\addon.py") -Value "archive" -Encoding UTF8
 	[IO.File]::WriteAllText((Join-Path $iniSource "nvda.ini"), "schemaVersion = 10`r`n[keep]`r`na = 1`r`n[parent]`r`n[[child]]`r`nvalue = yes`r`n[deleteMe]`r`nold = yes`r`n[moveMe]`r`nsource = yes`r`n[freshMove]`r`nz = 9`r`n", [Text.UTF8Encoding]::new($false))
 	[IO.File]::WriteAllText((Join-Path $iniDestination "nvda.ini"), "[moveMe]`ndestination = old`n[destKeep]`nb = 2`n", [Text.UTF8Encoding]::new($false))
+	[IO.File]::WriteAllText((Join-Path $gestureSource "gestures.ini"), "[globalPlugins.test.GlobalPlugin]`r`nscript_read = kb:NVDA+r`r`n[globalPlugins.unbound.GlobalPlugin]`r`nNone = kb:h`r`n[globalPlugins.multi.GlobalPlugin]`r`nscript_jump = kb:a, kb:b`r`n[deleteGesture]`r`nold = yes`r`n[moveGesture]`r`nsource = yes`r`n[freshGesture]`r`nz = 9`r`n", [Text.UTF8Encoding]::new($false))
+	[IO.File]::WriteAllText((Join-Path $gestureDestination "gestures.ini"), "[moveGesture]`ndestination = old`n[destGestureKeep]`nb = 2`n", [Text.UTF8Encoding]::new($false))
 	$archiveZip = Join-Path $addonInstallSource "archiveAddon.zip"
 	Compress-Archive -Path (Join-Path $addonInstallSource "archiveAddonBuild\*") -DestinationPath $archiveZip -Force
 	Move-Item -LiteralPath $archiveZip -Destination (Join-Path $addonInstallSource "archiveAddon.nvda-addon") -Force
@@ -288,7 +312,7 @@ class Harness
 		var sourceIni = System.IO.Path.Combine(args[10], "nvda.ini");
 		var destinationIni = System.IO.Path.Combine(args[11], "nvda.ini");
 		var freshDestinationIni = System.IO.Path.Combine(args[12], "nvda.ini");
-		var parsed = NvdaIniSectionService.ParseFile(sourceIni);
+		var parsed = IniSectionService.ParseFile(sourceIni);
 		if (parsed.PreambleLines.Count != 1 || parsed.Sections.Count != 5)
 		{
 			Console.WriteLine("ini-parse-count-failed preamble=" + parsed.PreambleLines.Count + " sections=" + parsed.Sections.Count);
@@ -300,7 +324,7 @@ class Harness
 			Console.WriteLine("ini-nested-section-failed");
 			return 11;
 		}
-		NvdaIniSectionService.DeleteSections(sourceIni, new[] { "deleteMe", "parent" });
+		IniSectionService.DeleteSections(sourceIni, new[] { "deleteMe", "parent" });
 		var afterDelete = System.IO.File.ReadAllText(sourceIni);
 		if (afterDelete.IndexOf("[deleteMe]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("[parent]", StringComparison.Ordinal) >= 0 || afterDelete.IndexOf("schemaVersion = 10\r\n", StringComparison.Ordinal) < 0)
 		{
@@ -313,7 +337,7 @@ class Harness
 			Console.WriteLine("ini-backup-after-delete-failed count=" + sourceBackupCount);
 			return 15;
 		}
-		NvdaIniSectionService.CopySection(sourceIni, destinationIni, "keep", true);
+		IniSectionService.CopySection(sourceIni, destinationIni, "keep", true);
 		var afterCopySource = System.IO.File.ReadAllText(sourceIni);
 		var afterCopyDestination = System.IO.File.ReadAllText(destinationIni);
 		if (afterCopySource.IndexOf("[keep]", StringComparison.Ordinal) < 0 || afterCopyDestination.IndexOf("[keep]", StringComparison.Ordinal) < 0)
@@ -321,7 +345,7 @@ class Harness
 			Console.WriteLine("ini-copy-failed");
 			return 16;
 		}
-		NvdaIniSectionService.MoveSection(sourceIni, destinationIni, "moveMe", true);
+		IniSectionService.MoveSection(sourceIni, destinationIni, "moveMe", true);
 		var destinationText = System.IO.File.ReadAllText(destinationIni);
 		var sourceAfterMove = System.IO.File.ReadAllText(sourceIni);
 		if (sourceAfterMove.IndexOf("[moveMe]", StringComparison.Ordinal) >= 0 || destinationText.IndexOf("source = yes", StringComparison.Ordinal) < 0 || destinationText.IndexOf("destination = old", StringComparison.Ordinal) >= 0 || destinationText.IndexOf("[destKeep]", StringComparison.Ordinal) < 0)
@@ -329,7 +353,7 @@ class Harness
 			Console.WriteLine("ini-move-overwrite-failed");
 			return 13;
 		}
-		NvdaIniSectionService.MoveSection(sourceIni, freshDestinationIni, "freshMove", false);
+		IniSectionService.MoveSection(sourceIni, freshDestinationIni, "freshMove", false);
 		var freshText = System.IO.File.ReadAllText(freshDestinationIni);
 		if (freshText.IndexOf("schemaVersion", StringComparison.Ordinal) >= 0 || freshText.IndexOf("[freshMove]", StringComparison.Ordinal) < 0)
 		{
@@ -343,6 +367,69 @@ class Harness
 			return 17;
 		}
 		Console.WriteLine("ini-section-service-ok");
+		var gestureSourceIni = System.IO.Path.Combine(args[13], "gestures.ini");
+		var gestureDestinationIni = System.IO.Path.Combine(args[14], "gestures.ini");
+		var gestureFreshDestinationIni = System.IO.Path.Combine(args[15], "gestures.ini");
+		var gestureParsed = IniSectionService.ParseFile(gestureSourceIni);
+		if (gestureParsed.PreambleLines.Count != 0 || gestureParsed.Sections.Count != 6)
+		{
+			Console.WriteLine("gesture-parse-count-failed preamble=" + gestureParsed.PreambleLines.Count + " sections=" + gestureParsed.Sections.Count);
+			return 18;
+		}
+		var unbound = gestureParsed.Sections.Find(section => section.Name == "globalPlugins.unbound.GlobalPlugin");
+		if (unbound == null || !unbound.RawLines.Contains("None = kb:h"))
+		{
+			Console.WriteLine("gesture-none-line-failed");
+			return 19;
+		}
+		var multi = gestureParsed.Sections.Find(section => section.Name == "globalPlugins.multi.GlobalPlugin");
+		if (multi == null || !multi.RawLines.Contains("script_jump = kb:a, kb:b"))
+		{
+			Console.WriteLine("gesture-comma-list-failed");
+			return 20;
+		}
+		IniSectionService.DeleteSections(gestureSourceIni, new[] { "deleteGesture" });
+		var gestureAfterDelete = System.IO.File.ReadAllText(gestureSourceIni);
+		if (gestureAfterDelete.IndexOf("[deleteGesture]", StringComparison.Ordinal) >= 0 || gestureAfterDelete.IndexOf("None = kb:h", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("gesture-delete-failed");
+			return 21;
+		}
+		var gestureSourceBackupCount = System.IO.Directory.GetFiles(args[13], "gestures*.ini").Length - 1;
+		if (gestureSourceBackupCount != 1 || System.IO.Directory.GetFiles(args[13], "nvda*.ini").Length != 0)
+		{
+			Console.WriteLine("gesture-backup-after-delete-failed count=" + gestureSourceBackupCount);
+			return 22;
+		}
+		IniSectionService.CopySection(gestureSourceIni, gestureDestinationIni, "globalPlugins.multi.GlobalPlugin", true);
+		var gestureAfterCopyDestination = System.IO.File.ReadAllText(gestureDestinationIni);
+		if (gestureAfterCopyDestination.IndexOf("script_jump = kb:a, kb:b", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("gesture-copy-failed");
+			return 23;
+		}
+		IniSectionService.MoveSection(gestureSourceIni, gestureDestinationIni, "moveGesture", true);
+		var gestureDestinationText = System.IO.File.ReadAllText(gestureDestinationIni);
+		var gestureSourceAfterMove = System.IO.File.ReadAllText(gestureSourceIni);
+		if (gestureSourceAfterMove.IndexOf("[moveGesture]", StringComparison.Ordinal) >= 0 || gestureDestinationText.IndexOf("source = yes", StringComparison.Ordinal) < 0 || gestureDestinationText.IndexOf("destination = old", StringComparison.Ordinal) >= 0 || gestureDestinationText.IndexOf("[destGestureKeep]", StringComparison.Ordinal) < 0)
+		{
+			Console.WriteLine("gesture-move-overwrite-failed");
+			return 24;
+		}
+		var gestureDestinationBackupCount = System.IO.Directory.GetFiles(args[14], "gestures*.ini").Length - 1;
+		if (gestureDestinationBackupCount == 0 || System.IO.Directory.GetFiles(args[14], "nvda*.ini").Length != 0)
+		{
+			Console.WriteLine("gesture-destination-backup-failed count=" + gestureDestinationBackupCount);
+			return 26;
+		}
+		IniSectionService.MoveSection(gestureSourceIni, gestureFreshDestinationIni, "freshGesture", false);
+		var gestureFreshText = System.IO.File.ReadAllText(gestureFreshDestinationIni);
+		if (gestureFreshText.IndexOf("[freshGesture]", StringComparison.Ordinal) < 0 || gestureFreshText.IndexOf("[globalPlugins.test.GlobalPlugin]", StringComparison.Ordinal) >= 0)
+		{
+			Console.WriteLine("gesture-fresh-move-failed");
+			return 25;
+		}
+		Console.WriteLine("gesture-section-service-ok");
 		return result.Errors == 0 ? 0 : 1;
 	}
 }
@@ -357,7 +444,7 @@ class Harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
-	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget $iniSource $iniDestination $iniFreshDestination
+	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget $iniSource $iniDestination $iniFreshDestination $gestureSource $gestureDestination $gestureFreshDestination
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness failed."
 	}
@@ -414,10 +501,11 @@ class Harness
 		'<h2 id="menus">Menus</h2>',
 		'<h2 id="preferences">Preferences</h2>',
 		'<h2 id="secondary-properties">Secondary Folder Properties</h2>',
-		'<h2 id="ini-section-cleanup">NVDA.ini Section Cleanup</h2>',
+		'<h2 id="ini-section-cleanup">INI Section Cleanup</h2>',
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.3.4</h3>',
 		'<h3>1.3.3</h3>',
 		'<h3>1.3.2</h3>',
 		'<h3>1.3.1</h3>',
@@ -548,13 +636,28 @@ class Harness
 	if ($runningSync.ExitCode -ne 0) {
 		throw "--sync-running did not signal the running app."
 	}
-	$closeRun = Start-Process -FilePath $builtExe -ArgumentList @("--close") -Wait -PassThru
-	if ($closeRun.ExitCode -ne 0) {
-		throw "--close did not signal the running app."
-	}
+	$takeoverFolder = Join-Path $tempRoot "takeoverPortable"
+	New-Item -ItemType Directory -Path $takeoverFolder -Force | Out-Null
+	Copy-Item -LiteralPath (Join-Path $root "portable\NVDASync.exe") -Destination (Join-Path $takeoverFolder "NVDASync.exe") -Force
+	Copy-Item -LiteralPath (Join-Path $root "portable\Manual.html") -Destination (Join-Path $takeoverFolder "Manual.html") -Force
+	Copy-Item -LiteralPath (Join-Path $root "portable\LICENSE.txt") -Destination (Join-Path $takeoverFolder "LICENSE.txt") -Force
+	$takeoverExe = Join-Path $takeoverFolder "NVDASync.exe"
+	$takeoverProcess = Start-Process -FilePath $takeoverExe -PassThru
 	if (-not $guiProcess.WaitForExit(10000)) {
 		$guiProcess.Kill()
-		throw "Running app did not close after --close."
+		throw "Different-folder launch did not close the previous running instance."
+	}
+	Start-Sleep -Seconds 2
+	if ($takeoverProcess.HasExited) {
+		throw "Different-folder takeover instance exited unexpectedly."
+	}
+	$closeRun = Start-Process -FilePath $takeoverExe -ArgumentList @("--close") -Wait -PassThru
+	if ($closeRun.ExitCode -ne 0) {
+		throw "--close did not signal the takeover app."
+	}
+	if (-not $takeoverProcess.WaitForExit(10000)) {
+		$takeoverProcess.Kill()
+		throw "Takeover app did not close after --close."
 	}
 	if (-not (Test-Path -LiteralPath (Join-Path $root "portable\Logs\NVDASync.log"))) {
 		throw "GUI run did not create Logs\NVDASync.log."
@@ -566,6 +669,8 @@ class Harness
 	Write-Host "Smoke test passed."
 }
 finally {
+	Remove-NotifyIconEntriesForPathPrefix $tempRoot
+	Remove-NotifyIconEntriesForPathPrefix (Join-Path $root "portable")
 	if (Test-Path -LiteralPath $tempRoot) {
 		Remove-TreeWithRetry $tempRoot
 	}

@@ -10,7 +10,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.3.3";
+        internal const string Version = "1.3.4";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -38,6 +38,7 @@ namespace NvdaAddonSync
                 return;
             }
             MigrateLegacyNotificationIconRegistration();
+            NotificationIconRegistration.EnsurePromotedCurrentExecutablePath(Application.ExecutablePath);
             TryDeleteLegacyExecutable(commandLine.DeleteOldExePath);
 
             if (commandLine.CloseRunning)
@@ -72,18 +73,92 @@ namespace NvdaAddonSync
             }
             TryDeleteBundledLegacyExecutable();
 
-            bool created;
-            using (var mutex = new Mutex(true, AppCommands.MutexName, out created))
+            Mutex mutex;
+            if (!AcquireSingleInstanceMutex(out mutex))
             {
-                if (!created)
-                {
-                    AppCommands.Signal(AppCommand.Show);
-                    return;
-                }
-
+                return;
+            }
+            using (mutex)
+            {
+                InstanceStateStore.PublishCurrent(AppSettings.AppFolder);
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new MainForm(commandLine.StartupLaunch));
+                try
+                {
+                    Application.Run(new MainForm(commandLine.StartupLaunch));
+                }
+                finally
+                {
+                    InstanceStateStore.ClearIfCurrent(AppSettings.AppFolder);
+                }
+                GC.KeepAlive(mutex);
+            }
+        }
+
+        private static bool AcquireSingleInstanceMutex(out Mutex mutex)
+        {
+            mutex = null;
+            if (TryAcquireMutex(out mutex))
+            {
+                return true;
+            }
+
+            var appFolder = AppSettings.AppFolder;
+            if (InstanceStateStore.IsSameRunningFolder(appFolder))
+            {
+                AppCommands.Signal(AppCommand.Show);
+                return false;
+            }
+
+            var previous = InstanceStateStore.Load();
+            if (previous != null && !string.IsNullOrWhiteSpace(previous.AppFolder))
+            {
+                AppCommands.Signal(AppCommand.Close, previous.AppFolder);
+            }
+            WaitForPreviousInstanceToExit(previous == null ? 0 : previous.ProcessId);
+
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (TryAcquireMutex(out mutex))
+                {
+                    return true;
+                }
+                Thread.Sleep(250);
+            }
+
+            AppCommands.Signal(AppCommand.Show, previous == null ? appFolder : previous.AppFolder);
+            return false;
+        }
+
+        private static bool TryAcquireMutex(out Mutex mutex)
+        {
+            bool created;
+            mutex = new Mutex(true, AppCommands.MutexName, out created);
+            if (created)
+            {
+                return true;
+            }
+            mutex.Dispose();
+            mutex = null;
+            return false;
+        }
+
+        private static void WaitForPreviousInstanceToExit(int processId)
+        {
+            if (processId <= 0)
+            {
+                return;
+            }
+            try
+            {
+                using (var process = Process.GetProcessById(processId))
+                {
+                    process.WaitForExit(10000);
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -275,16 +350,19 @@ namespace NvdaAddonSync
 
     internal static class AppCommands
     {
-        private static readonly string Suffix = Math.Abs(AppSettings.AppFolder.ToLowerInvariant().GetHashCode()).ToString("X");
-
         public static string MutexName
         {
-            get { return "NvdaAddonSync-" + Suffix; }
+            get { return @"Local\NVDASyncSingleInstance"; }
         }
 
         public static string GetEventName(AppCommand command)
         {
-            return "NvdaAddonSync-" + command + "-" + Suffix;
+            return GetEventName(command, AppSettings.AppFolder);
+        }
+
+        public static string GetEventName(AppCommand command, string appFolder)
+        {
+            return "NvdaAddonSync-" + command + "-" + EventSuffix(appFolder);
         }
 
         public static EventWaitHandle CreateEvent(AppCommand command)
@@ -294,10 +372,15 @@ namespace NvdaAddonSync
 
         public static bool Signal(AppCommand command)
         {
+            return Signal(command, AppSettings.AppFolder);
+        }
+
+        public static bool Signal(AppCommand command, string appFolder)
+        {
             try
             {
                 EventWaitHandle existing;
-                if (!EventWaitHandle.TryOpenExisting(GetEventName(command), out existing))
+                if (!EventWaitHandle.TryOpenExisting(GetEventName(command, appFolder), out existing))
                 {
                     return false;
                 }
@@ -310,6 +393,13 @@ namespace NvdaAddonSync
             {
                 return false;
             }
+        }
+
+        private static string EventSuffix(string appFolder)
+        {
+            var folder = string.IsNullOrWhiteSpace(appFolder) ? AppSettings.AppFolder : appFolder;
+            folder = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Math.Abs(folder.ToLowerInvariant().GetHashCode()).ToString("X");
         }
     }
 
@@ -459,7 +549,7 @@ namespace NvdaAddonSync
                     "--sync                 Run one sync without showing the UI.",
                     "--primary <folder>     Primary NVDA or add-ons folder for --sync.",
                     "--secondary <folder>   Secondary NVDA or add-ons folder. May be repeated up to five times.",
-                    "--delete-stale         Delete stale files in secondaries for this --sync.",
+                    "--delete-stale         Delete stale files in secondary folders for this --sync.",
                     "--no-delete-stale      Do not delete stale files for this --sync.",
                     "--component <id>       Sync one component. May be repeated. IDs: addons, inputGestures, nvdaIni, speechDictionaries, configProfiles, otherConfigFiles, otherConfigFolders.",
                     "--all-components       Sync every supported component.",

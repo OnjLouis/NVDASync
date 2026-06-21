@@ -9,24 +9,27 @@ using System.Windows.Forms;
 
 namespace NvdaAddonSync
 {
-    internal sealed class NvdaIniSectionManagerForm : Form
+    internal sealed class IniSectionManagerForm : Form
     {
         private readonly AppSettings settings;
+        private readonly string targetFileName;
+        private readonly string backupNameExample;
         private readonly ComboBox sourceComboBox;
-        private readonly TextBox folderTextBox;
         private readonly CheckedListBox sectionsListBox;
         private readonly TextBox previewTextBox;
         private readonly ComboBox destinationComboBox;
         private readonly TextBox logTextBox;
         private string currentFolder;
         private string currentIniPath;
-        private NvdaIniParseResult currentParseResult;
+        private IniParseResult currentParseResult;
         private bool loadingSourceLocations;
 
-        public NvdaIniSectionManagerForm(AppSettings settings, string initialFolder)
+        public IniSectionManagerForm(AppSettings settings, string initialFolder, string targetFileName, string title)
         {
             this.settings = settings;
-            Text = "NVDA.ini Section Cleanup";
+            this.targetFileName = string.IsNullOrWhiteSpace(targetFileName) ? "nvda.ini" : targetFileName;
+            backupNameExample = Path.GetFileNameWithoutExtension(this.targetFileName) + "YYYYMMDD-HHMMSS" + Path.GetExtension(this.targetFileName);
+            Text = string.IsNullOrWhiteSpace(title) ? this.targetFileName + " Section Cleanup" : title;
             StartPosition = FormStartPosition.CenterParent;
             Width = 760;
             Height = 560;
@@ -51,32 +54,24 @@ namespace NvdaAddonSync
 
             var folderLabel = new Label();
             folderLabel.AutoSize = true;
-            folderLabel.Text = "nvda.ini &location";
+            folderLabel.Text = this.targetFileName + " &location";
             root.Controls.Add(folderLabel, 0, 0);
 
             var folderPanel = new TableLayoutPanel();
             folderPanel.Dock = DockStyle.Top;
             folderPanel.ColumnCount = 2;
-            folderPanel.RowCount = 2;
+            folderPanel.RowCount = 1;
             folderPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             folderPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            folderPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             folderPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.Controls.Add(folderPanel, 0, 1);
 
             sourceComboBox = new ComboBox();
             sourceComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             sourceComboBox.Dock = DockStyle.Fill;
-            sourceComboBox.AccessibleName = "nvda.ini location";
+            sourceComboBox.AccessibleName = this.targetFileName + " location";
             sourceComboBox.SelectionChangeCommitted += delegate { SourceLocationChanged(); };
             folderPanel.Controls.Add(sourceComboBox, 0, 0);
-
-            folderTextBox = new TextBox();
-            folderTextBox.ReadOnly = true;
-            folderTextBox.Dock = DockStyle.Fill;
-            folderTextBox.AccessibleName = "Selected nvda.ini path";
-            folderPanel.Controls.Add(folderTextBox, 0, 1);
-            folderPanel.SetColumnSpan(folderTextBox, 2);
 
             var browseButton = new Button();
             browseButton.Text = "&Browse...";
@@ -95,7 +90,7 @@ namespace NvdaAddonSync
             sectionsListBox = new CheckedListBox();
             sectionsListBox.Dock = DockStyle.Fill;
             sectionsListBox.CheckOnClick = true;
-            sectionsListBox.AccessibleName = "Sections found in nvda.ini";
+            sectionsListBox.AccessibleName = "Sections found in " + this.targetFileName;
             sectionsListBox.SelectedIndexChanged += delegate { UpdatePreview(); };
             sectionsPanel.Controls.Add(sectionsListBox, 0, 0);
 
@@ -105,7 +100,7 @@ namespace NvdaAddonSync
             previewTextBox.ReadOnly = true;
             previewTextBox.ScrollBars = ScrollBars.Both;
             previewTextBox.WordWrap = false;
-            previewTextBox.AccessibleName = "Selected nvda.ini section preview";
+            previewTextBox.AccessibleName = "Selected " + this.targetFileName + " section preview";
             sectionsPanel.Controls.Add(previewTextBox, 1, 0);
 
             var actionsPanel = new FlowLayoutPanel();
@@ -171,8 +166,8 @@ namespace NvdaAddonSync
             AcceptButton = closeButton;
             CancelButton = closeButton;
 
-            NvdaIniSectionService.Message += AddLog;
-            FormClosed += delegate { NvdaIniSectionService.Message -= AddLog; };
+            IniSectionService.Message += AddLog;
+            FormClosed += delegate { IniSectionService.Message -= AddLog; };
             KeyDown += OnKeyDown;
 
             LoadSourceLocations(initialFolder);
@@ -205,7 +200,7 @@ namespace NvdaAddonSync
                     {
                         continue;
                     }
-                    AddSourceLocation("Secondary " + (index + 1), profile.Path);
+                    AddSourceLocation("Secondary folder " + (index + 1), profile.Path);
                 }
                 if (sourceComboBox.Items.Count > 0)
                 {
@@ -289,7 +284,7 @@ namespace NvdaAddonSync
                     {
                         sourceComboBox.Items.Add(new IniLocationOption
                         {
-                            Label = "Custom: " + dialog.SelectedPath,
+                            Label = "Custom folder: " + dialog.SelectedPath,
                             Folder = dialog.SelectedPath
                         });
                         sourceComboBox.SelectedIndex = sourceComboBox.Items.Count - 1;
@@ -313,15 +308,15 @@ namespace NvdaAddonSync
             try
             {
                 currentFolder = SyncEngine.ResolveNvdaConfigDirectory(folder ?? string.Empty, "NVDA data folder", true);
-                currentIniPath = Path.Combine(currentFolder, "nvda.ini");
-                folderTextBox.Text = currentIniPath;
+                currentIniPath = Path.Combine(currentFolder, targetFileName);
+                sourceComboBox.AccessibleDescription = currentIniPath;
                 LoadSections(selectFirstSection);
             }
             catch (Exception ex)
             {
                 currentFolder = folder ?? string.Empty;
                 currentIniPath = string.Empty;
-                folderTextBox.Text = currentFolder;
+                sourceComboBox.AccessibleDescription = currentFolder;
                 sectionsListBox.Items.Clear();
                 AddLog("Could not open NVDA data folder: " + ex.Message);
             }
@@ -340,12 +335,12 @@ namespace NvdaAddonSync
             logTextBox.Clear();
             if (string.IsNullOrWhiteSpace(currentIniPath) || !File.Exists(currentIniPath))
             {
-                AddLog("No nvda.ini found in this folder.");
+                AddLog("No " + targetFileName + " found in this folder.");
                 return;
             }
             try
             {
-                currentParseResult = NvdaIniSectionService.ParseFile(currentIniPath);
+                currentParseResult = IniSectionService.ParseFile(currentIniPath);
                 foreach (var section in currentParseResult.Sections)
                 {
                     sectionsListBox.Items.Add(section.Name, false);
@@ -359,7 +354,7 @@ namespace NvdaAddonSync
             }
             catch (Exception ex)
             {
-                AddLog("Could not read nvda.ini: " + ex.Message);
+                AddLog("Could not read " + targetFileName + ": " + ex.Message);
             }
         }
 
@@ -396,9 +391,9 @@ namespace NvdaAddonSync
             var confirmation = MessageBox.Show(
                 this,
                 "Delete " + names.Count + " section(s) from:" + Environment.NewLine + currentIniPath + Environment.NewLine + Environment.NewLine +
-                "NVDA Sync will create a backup beside nvda.ini before changing it, named like nvdaYYYYMMDD-HHMMSS.ini." + Environment.NewLine + Environment.NewLine +
+                "NVDA Sync will create a backup beside " + targetFileName + " before changing it, named like " + backupNameExample + "." + Environment.NewLine + Environment.NewLine +
                 "Continue?",
-                "Delete nvda.ini sections",
+                "Delete " + targetFileName + " sections",
                 MessageBoxButtons.OKCancel,
                 MessageBoxIcon.Warning);
             if (confirmation != DialogResult.OK)
@@ -415,7 +410,7 @@ namespace NvdaAddonSync
             }
             try
             {
-                NvdaIniSectionService.DeleteSections(currentIniPath, names);
+                IniSectionService.DeleteSections(currentIniPath, names);
             }
             catch (Exception ex)
             {
@@ -463,7 +458,7 @@ namespace NvdaAddonSync
                 FocusLog();
                 return;
             }
-            var destinationIniPath = Path.Combine(destinationFolder, "nvda.ini");
+            var destinationIniPath = Path.Combine(destinationFolder, targetFileName);
             var conflicts = ExistingDestinationSections(destinationIniPath, names);
             var message = new StringBuilder();
             message.AppendLine((move ? "Move " : "Copy ") + names.Count + " section(s) from:");
@@ -475,13 +470,13 @@ namespace NvdaAddonSync
             {
                 message.AppendLine();
                 message.AppendLine("Move deletes the selected section(s) from the source after writing them to the destination.");
-                message.AppendLine("NVDA Sync will create backups beside existing nvda.ini files before changing them.");
+                message.AppendLine("NVDA Sync will create backups beside existing " + targetFileName + " files before changing them.");
             }
             else
             {
                 message.AppendLine();
-                message.AppendLine("Copy leaves the source nvda.ini unchanged.");
-                message.AppendLine("NVDA Sync will create a backup beside the destination nvda.ini before changing it.");
+                message.AppendLine("Copy leaves the source " + targetFileName + " unchanged.");
+                message.AppendLine("NVDA Sync will create a backup beside the destination " + targetFileName + " before changing it.");
             }
             if (conflicts.Count > 0)
             {
@@ -492,7 +487,7 @@ namespace NvdaAddonSync
                     message.AppendLine("[" + conflict + "]");
                 }
             }
-            var confirmation = MessageBox.Show(this, message.ToString(), (move ? "Move" : "Copy") + " nvda.ini sections", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            var confirmation = MessageBox.Show(this, message.ToString(), (move ? "Move" : "Copy") + " " + targetFileName + " sections", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (confirmation != DialogResult.OK)
             {
                 return;
@@ -510,11 +505,11 @@ namespace NvdaAddonSync
             {
                 if (move)
                 {
-                    NvdaIniSectionService.MoveSections(currentIniPath, destinationIniPath, names, true);
+                    IniSectionService.MoveSections(currentIniPath, destinationIniPath, names, true);
                 }
                 else
                 {
-                    NvdaIniSectionService.CopySections(currentIniPath, destinationIniPath, names, true);
+                    IniSectionService.CopySections(currentIniPath, destinationIniPath, names, true);
                 }
             }
             catch (Exception ex)
@@ -528,14 +523,14 @@ namespace NvdaAddonSync
 
         private List<string> PrepareForIniWrites(IEnumerable<string> iniPaths)
         {
-            var nvdaExePaths = RunningNvdaExePathsForIniFiles(iniPaths);
+            var nvdaExePaths = RunningNvdaExePathsForIniFiles(iniPaths, targetFileName);
             if (nvdaExePaths.Count == 0)
             {
-                AddLog("No running NVDA instance matched the nvda.ini file(s) being changed.");
+                AddLog("No running NVDA instance matched the " + targetFileName + " file(s) being changed.");
                 return new List<string>();
             }
             var message = new StringBuilder();
-            message.AppendLine("NVDA appears to be running for one or more nvda.ini files that will be changed.");
+            message.AppendLine("NVDA appears to be running for one or more " + targetFileName + " files that will be changed.");
             message.AppendLine();
             message.AppendLine("If the file is edited while NVDA is running, NVDA can write its in-memory settings back over these changes.");
             message.AppendLine();
@@ -544,7 +539,7 @@ namespace NvdaAddonSync
             {
                 return null;
             }
-            AddLog("Closing NVDA before changing live nvda.ini.");
+            AddLog("Closing NVDA before changing live " + targetFileName + ".");
             var closed = new List<string>();
             foreach (var exePath in nvdaExePaths)
             {
@@ -630,10 +625,10 @@ namespace NvdaAddonSync
             }
         }
 
-        private static List<string> RunningNvdaExePathsForIniFiles(IEnumerable<string> iniPaths)
+        private static List<string> RunningNvdaExePathsForIniFiles(IEnumerable<string> iniPaths, string targetFileName)
         {
             var result = new List<string>();
-            var liveInstalledIni = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "nvda", "nvda.ini");
+            var liveInstalledIni = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "nvda", targetFileName);
             var installedNvdaExe = DetectInstalledNvdaExecutablePath();
             var hasRunningNvda = Process.GetProcessesByName("nvda").Length > 0;
             var anyReadableNvdaPath = false;
@@ -892,7 +887,7 @@ namespace NvdaAddonSync
             }
             try
             {
-                var destinationNames = NvdaIniSectionService.GetSectionNames(destinationIniPath);
+                var destinationNames = IniSectionService.GetSectionNames(destinationIniPath);
                 foreach (var name in names)
                 {
                     foreach (var destinationName in destinationNames)

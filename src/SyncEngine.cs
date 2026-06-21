@@ -155,7 +155,7 @@ namespace NvdaAddonSync
                     if (!IsTargetAvailable(target))
                     {
                         result.UnavailableTargets++;
-                        Log("Skipped unavailable secondary " + target);
+                        Log("Skipped unavailable secondary folder " + target);
                         continue;
                     }
                     Directory.CreateDirectory(target);
@@ -169,7 +169,7 @@ namespace NvdaAddonSync
                 catch (DirectoryNotFoundException ex)
                 {
                     result.UnavailableTargets++;
-                    Log("Skipped unavailable secondary: " + ex.Message);
+                    Log("Skipped unavailable secondary folder: " + ex.Message);
                 }
                 catch (OperationCanceledException)
                 {

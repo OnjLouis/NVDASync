@@ -14,13 +14,15 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Add-ons are selected by default; add-on sync can copy all add-ons, update only add-ons already present in a secondary, or be disabled per target. Potentially machine-specific configuration is opt-in.
 - Python cache files are excluded by default.
 - Auto-sync watches the primary folder and pushes changes after a 1.5 second debounce.
-- Unavailable removable-drive secondaries are skipped without interrupting the user, then retried every 60 seconds while auto-sync is enabled.
+- Unavailable removable-drive secondary folders are skipped without interrupting the user, then retried every 60 seconds while auto-sync is enabled.
 - Manual sync is available from the main window or tray menu.
-- Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, orphaned `nvda.ini` section cleanup, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
+- Normal GUI launches are single-instance across NVDA Sync copies: same-folder launches show the running copy, and different-folder launches close the older copy before the new one starts.
+- Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, one grouped INI cleanup submenu for orphaned `nvda.ini` and `gestures.ini` sections, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
 - The `nvda.ini` cleanup tool lists top-level sections in a chosen NVDA data folder and can delete, copy, or move them into a configured secondary folder, keeping nested subsections with their parent.
-- The `nvda.ini` cleanup tool includes primary, secondary, and custom location choices, plus a read-only preview for the selected section.
-- Existing `nvda.ini` files are backed up before cleanup writes, and live NVDA profile edits warn before proceeding because NVDA can overwrite external edits from memory.
-- NVDA.ini cleanup logs requested section changes, NVDA close and reopen activity, backup creation, file sizes before and after edits, and line counts removed.
+- The `gestures.ini` cleanup tool uses the same workflow for input gesture sections, preserving raw gesture lines such as `None = kb:h` and comma-separated bindings.
+- Both section cleanup tools include primary, secondary, and custom location choices, plus a read-only preview for the selected section.
+- Existing INI files are backed up before cleanup writes, and live NVDA profile edits warn before proceeding because NVDA can overwrite external edits from memory.
+- Section cleanup logs requested section changes, NVDA close and reopen activity, backup creation, file sizes before and after edits, and line counts removed.
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, auto-sync, Windows startup, start-minimized behavior, and update checks.
@@ -29,7 +31,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Command-line switches support closing, showing, syncing the running app, one-shot syncs, component selection, and cache handling.
 - A rolling log is written to `Logs\NVDASync.log`; Options > Save log saves the visible log to a chosen file.
 - GitHub release update checks and self-updates use `https://github.com/OnjLouis/NVDASync`.
-- Automatic update checks can be set to never, startup, hourly, or daily, with optional silent install when a release ZIP is available.
+- Automatic update checks default to startup for new users and can be set to never, startup, hourly, or daily, with optional silent install when a release ZIP is available.
 
 ## Keyboard
 

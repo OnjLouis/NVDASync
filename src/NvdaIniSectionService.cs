@@ -16,14 +16,14 @@ namespace NvdaAddonSync
         }
     }
 
-    internal sealed class NvdaIniParseResult
+    internal sealed class IniParseResult
     {
         public List<string> PreambleLines { get; set; }
         public List<IniSection> Sections { get; set; }
         public string LineEnding { get; set; }
         public bool HasTrailingNewline { get; set; }
 
-        public NvdaIniParseResult()
+        public IniParseResult()
         {
             PreambleLines = new List<string>();
             Sections = new List<IniSection>();
@@ -79,23 +79,23 @@ namespace NvdaAddonSync
         }
     }
 
-    internal static class NvdaIniSectionService
+    internal static class IniSectionService
     {
         public static event Action<string> Message;
 
-        public static NvdaIniParseResult ParseFile(string iniPath)
+        public static IniParseResult ParseFile(string iniPath)
         {
             if (string.IsNullOrWhiteSpace(iniPath))
             {
-                throw new ArgumentException("No nvda.ini path was supplied.", "iniPath");
+                throw new ArgumentException("No INI path was supplied.", "iniPath");
             }
             if (!File.Exists(iniPath))
             {
-                throw new FileNotFoundException("nvda.ini was not found.", iniPath);
+                throw new FileNotFoundException(Path.GetFileName(iniPath) + " was not found.", iniPath);
             }
 
             var text = File.ReadAllText(iniPath, Encoding.UTF8);
-            var result = new NvdaIniParseResult();
+            var result = new IniParseResult();
             result.LineEnding = DetectLineEnding(text);
             result.HasTrailingNewline = text.EndsWith("\r\n", StringComparison.Ordinal) ||
                                         text.EndsWith("\n", StringComparison.Ordinal) ||
@@ -174,7 +174,7 @@ namespace NvdaAddonSync
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not delete selected section(s) from nvda.ini: " + ex.Message, ex);
+                throw new IOException("Could not delete selected section(s) from " + FileLabel(iniPath) + ": " + ex.Message, ex);
             }
         }
 
@@ -194,7 +194,7 @@ namespace NvdaAddonSync
                     var sourceIndex = FindSectionIndex(source.Sections, sectionName);
                     if (sourceIndex < 0)
                     {
-                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source " + FileLabel(sourceIniPath) + ".");
                     }
                     sectionsToMove.Add(CloneSection(source.Sections[sourceIndex]));
                 }
@@ -204,14 +204,14 @@ namespace NvdaAddonSync
                 var destinationStats = CaptureFileStats(destinationIniPath);
                 var sourceStats = CaptureFileStats(sourceIniPath);
 
-                NvdaIniParseResult destination;
+                IniParseResult destination;
                 if (File.Exists(destinationIniPath))
                 {
                     destination = ParseFile(destinationIniPath);
                 }
                 else
                 {
-                    destination = new NvdaIniParseResult();
+                    destination = new IniParseResult();
                     destination.LineEnding = source.LineEnding;
                     destination.HasTrailingNewline = true;
                     var parent = Path.GetDirectoryName(destinationIniPath);
@@ -255,7 +255,7 @@ namespace NvdaAddonSync
                 }
                 else if (destinationCreated)
                 {
-                    message += " and created the destination nvda.ini.";
+                    message += " and created the destination " + FileLabel(destinationIniPath) + ".";
                 }
                 else
                 {
@@ -274,7 +274,7 @@ namespace NvdaAddonSync
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not move selected section(s) between nvda.ini files: " + ex.Message, ex);
+                throw new IOException("Could not move selected section(s) between INI files: " + ex.Message, ex);
             }
         }
 
@@ -294,7 +294,7 @@ namespace NvdaAddonSync
                     var sourceIndex = FindSectionIndex(source.Sections, sectionName);
                     if (sourceIndex < 0)
                     {
-                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source nvda.ini.");
+                        throw new InvalidOperationException("Section [" + sectionName + "] was not found in the source " + FileLabel(sourceIniPath) + ".");
                     }
                     sectionsToCopy.Add(CloneSection(source.Sections[sourceIndex]));
                 }
@@ -303,14 +303,14 @@ namespace NvdaAddonSync
                 var overwritten = false;
                 var destinationStats = CaptureFileStats(destinationIniPath);
 
-                NvdaIniParseResult destination;
+                IniParseResult destination;
                 if (File.Exists(destinationIniPath))
                 {
                     destination = ParseFile(destinationIniPath);
                 }
                 else
                 {
-                    destination = new NvdaIniParseResult();
+                    destination = new IniParseResult();
                     destination.LineEnding = source.LineEnding;
                     destination.HasTrailingNewline = true;
                     var parent = Path.GetDirectoryName(destinationIniPath);
@@ -335,7 +335,7 @@ namespace NvdaAddonSync
                 }
                 else if (destinationCreated)
                 {
-                    message += " and created the destination nvda.ini.";
+                    message += " and created the destination " + FileLabel(destinationIniPath) + ".";
                 }
                 else
                 {
@@ -353,11 +353,11 @@ namespace NvdaAddonSync
             }
             catch (IOException ex)
             {
-                throw new IOException("Could not copy selected section(s) between nvda.ini files: " + ex.Message, ex);
+                throw new IOException("Could not copy selected section(s) between INI files: " + ex.Message, ex);
             }
         }
 
-        private static void AddOrReplaceDestinationSection(NvdaIniParseResult destination, IniSection section, bool overwriteIfExists, ref bool overwritten)
+        private static void AddOrReplaceDestinationSection(IniParseResult destination, IniSection section, bool overwriteIfExists, ref bool overwritten)
         {
             var destinationIndex = FindSectionIndex(destination.Sections, section.Name);
             if (destinationIndex >= 0)
@@ -488,7 +488,7 @@ namespace NvdaAddonSync
             return count;
         }
 
-        private static void WriteParsedFile(string path, NvdaIniParseResult parsed)
+        private static void WriteParsedFile(string path, IniParseResult parsed)
         {
             var content = BuildContent(parsed);
             var parent = Path.GetDirectoryName(path);
@@ -541,18 +541,28 @@ namespace NvdaAddonSync
         {
             var folder = Path.GetDirectoryName(path);
             var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            var backupPath = Path.Combine(folder, "nvda" + stamp + ".ini");
+            var baseName = Path.GetFileNameWithoutExtension(path);
+            var extension = Path.GetExtension(path);
+            if (string.IsNullOrWhiteSpace(baseName))
+            {
+                baseName = "ini";
+            }
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = ".ini";
+            }
+            var backupPath = Path.Combine(folder, baseName + stamp + extension);
             var counter = 2;
             while (File.Exists(backupPath))
             {
-                backupPath = Path.Combine(folder, "nvda" + stamp + "-" + counter + ".ini");
+                backupPath = Path.Combine(folder, baseName + stamp + "-" + counter + extension);
                 counter++;
             }
             File.Copy(path, backupPath, false);
             return backupPath;
         }
 
-        private static string BuildContent(NvdaIniParseResult parsed)
+        private static string BuildContent(IniParseResult parsed)
         {
             var lines = new List<string>();
             lines.AddRange(parsed.PreambleLines);
@@ -575,6 +585,12 @@ namespace NvdaAddonSync
             {
                 handler(message);
             }
+        }
+
+        private static string FileLabel(string path)
+        {
+            var label = Path.GetFileName(path);
+            return string.IsNullOrWhiteSpace(label) ? "INI file" : label;
         }
     }
 }

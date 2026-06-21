@@ -225,19 +225,22 @@ namespace NvdaAddonSync
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Detect primary folder", null, delegate { DetectPrimaryFolder(true); }));
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Add secondary folder...", null, delegate { AddSecondary(); }));
-            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Edit selected secondary...", null, delegate { EditSecondary(); }));
+            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Edit selected secondary folder...", null, delegate { EditSecondary(); }));
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("Secondary &properties...", null, delegate { OpenSecondaryProperties(); }));
-            var removeItem = new ToolStripMenuItem("&Remove selected secondary", null, delegate { RemoveSecondary(); });
+            var removeItem = new ToolStripMenuItem("&Remove selected secondary folder", null, delegate { RemoveSecondary(); });
             removeItem.ShortcutKeyDisplayString = "Del";
             foldersMenu.DropDownItems.Add(removeItem);
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
             foldersMenu.DropDownItems.Add(new ToolStripMenuItem("&Validate settings", null, delegate { ValidateSettings(); FocusLog(); }));
             foldersMenu.DropDownItems.Add(new ToolStripSeparator());
-            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up orphaned nvda.ini &sections...", null, delegate { OpenIniSectionManager(); }));
+            var cleanupMenu = new ToolStripMenuItem("Clean up orphaned &INI sections");
+            cleanupMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up &nvda.ini sections...", null, delegate { OpenIniSectionManager(); }));
+            cleanupMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up &gesture sections...", null, delegate { OpenGestureSectionManager(); }));
+            foldersMenu.DropDownItems.Add(cleanupMenu);
 
             var addonsMenu = new ToolStripMenuItem("&Add-ons");
             addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Export add-on pack...", null, delegate { ExportAddonPack(); }));
-            addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Install local add-ons to secondaries...", null, delegate { InstallLocalAddons(); }));
+            addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Install local add-ons to secondary folders...", null, delegate { InstallLocalAddons(); }));
 
             var optionsMenu = new ToolStripMenuItem("&Options");
             var preferencesItem = new ToolStripMenuItem("&Preferences...", null, delegate { OpenPreferences(); });
@@ -276,9 +279,9 @@ namespace NvdaAddonSync
         {
             var menu = new ContextMenuStrip();
             menu.Items.Add("Add secondary folder...", null, delegate { AddSecondary(); });
-            menu.Items.Add("Edit selected secondary...", null, delegate { EditSecondary(); });
+            menu.Items.Add("Edit selected secondary folder...", null, delegate { EditSecondary(); });
             menu.Items.Add("Properties...", null, delegate { OpenSecondaryProperties(); });
-            menu.Items.Add("Remove selected secondary", null, delegate { RemoveSecondary(); });
+            menu.Items.Add("Remove selected secondary folder", null, delegate { RemoveSecondary(); });
             return menu;
         }
 
@@ -668,7 +671,7 @@ namespace NvdaAddonSync
             }
             if (HasUnavailableSecondary())
             {
-                SyncNow("Checking reconnected secondaries");
+                SyncNow("Checking reconnected secondary folders");
             }
         }
 
@@ -813,7 +816,15 @@ namespace NvdaAddonSync
 
         private void OpenIniSectionManager()
         {
-            using (var dialog = new NvdaIniSectionManagerForm(settings, GetPrimaryFolder()))
+            using (var dialog = new IniSectionManagerForm(settings, GetPrimaryFolder(), "nvda.ini", "NVDA.ini Section Cleanup"))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void OpenGestureSectionManager()
+        {
+            using (var dialog = new IniSectionManagerForm(settings, GetPrimaryFolder(), "gestures.ini", "Gestures.ini Section Cleanup"))
             {
                 dialog.ShowDialog(this);
             }

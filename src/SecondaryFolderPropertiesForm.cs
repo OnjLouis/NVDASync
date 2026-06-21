@@ -47,7 +47,7 @@ namespace NvdaAddonSync
 
             var pathLabel = new Label();
             pathLabel.AutoSize = true;
-            pathLabel.Text = "Folder";
+            pathLabel.Text = "Secondary folder";
             root.Controls.Add(pathLabel, 0, 0);
 
             var pathTextBox = new TextBox();
@@ -113,7 +113,7 @@ namespace NvdaAddonSync
             optionsPanel.Controls.Add(createProgramBackupsCheckBox);
 
             deleteStaleCheckBox = new CheckBox();
-            deleteStaleCheckBox.Text = "&Delete stale items for this secondary";
+            deleteStaleCheckBox.Text = "&Delete stale items for this secondary folder";
             deleteStaleCheckBox.AutoSize = true;
             deleteStaleCheckBox.CheckedChanged += delegate { SaveToProfile(); };
             optionsPanel.Controls.Add(deleteStaleCheckBox);
@@ -197,7 +197,7 @@ namespace NvdaAddonSync
             excludePythonCacheCheckBox.Enabled = enabled;
             if (useDefaultsCheckBox.Checked)
             {
-                var text = "This secondary uses the global defaults: " + AddonSyncMode.DisplayName(settings.DefaultAddonMode);
+                var text = "This secondary folder uses the global defaults: " + AddonSyncMode.DisplayName(settings.DefaultAddonMode);
                 if (settings.SyncNvdaProgramFiles)
                 {
                     text += ", portable program files enabled";

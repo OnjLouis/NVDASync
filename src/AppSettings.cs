@@ -109,7 +109,7 @@ namespace NvdaAddonSync
             SettingsVersion = 2;
             WindowWidth = 820;
             WindowHeight = 560;
-            UpdateCheckFrequency = "Never";
+            UpdateCheckFrequency = "Startup";
             InstallUpdatesSilently = false;
             RunAtStartup = false;
         }
