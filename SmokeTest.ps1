@@ -163,7 +163,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.3.5"
+Assert-ChangelogClean "1.4.0"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -196,9 +196,11 @@ try {
 	New-Item -ItemType Directory -Path (Join-Path $primary "addons\addonA") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $primary "addons\addonA\__pycache__") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $primary "profiles") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $primary "speechDicts\voiceDicts.v1\orpheus") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $primary "sonata\voices") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $secondary "addons\oldAddon") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $secondary "addons\addonA\__pycache__") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $secondary "speechDicts") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $secondary "oldAddonData") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $portableNvda "userConfig\addons") -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $cliPrimaryAddons "addonB") -Force | Out-Null
@@ -224,10 +226,14 @@ try {
 	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\__pycache__\module.pyc") -Value "cache" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "profiles\Work.ini") -Value "[speech]`nrate = 40" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:notepad = Work" -Encoding UTF8
+	[IO.File]::WriteAllText((Join-Path $primary "speechDicts\default.dic"), "#first comment`r`nhash\#tag`treplace\#ment`t1`t2`r`nplain`tspoken`t0`t0`r`n", [Text.UTF8Encoding]::new($true))
+	[IO.File]::WriteAllText((Join-Path $primary "speechDicts\voiceDicts.v1\orpheus\orpheus-Synthetic Dave.dic"), "voice`tvoice replacement`t1`t0`r`n", [Text.UTF8Encoding]::new($true))
+	[IO.File]::WriteAllText((Join-Path $primary "speechDicts\legacyVoice.dic"), "legacy`tlegacy replacement`t1`t0`r`n", [Text.UTF8Encoding]::new($true))
 	Set-Content -LiteralPath (Join-Path $primary "sonata\voices\kirsten.txt") -Value "voice data" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\oldAddon\manifest.ini") -Value "stale" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\addonA\__pycache__\old.pyc") -Value "old cache" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:stale = Old" -Encoding UTF8
+	[IO.File]::WriteAllText((Join-Path $secondary "speechDicts\default.dic"), "existing`texisting replacement`t1`t0`r`n", [Text.UTF8Encoding]::new($true))
 	Set-Content -LiteralPath (Join-Path $secondary "oldAddonData\stale.txt") -Value "old data" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimaryAddons "addonB\manifest.ini") -Value "name = addonB" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\sonata\voice.txt") -Value "cli voice" -Encoding UTF8
@@ -313,6 +319,51 @@ class Harness
 			return 28;
 		}
 		Console.WriteLine("profile-trigger-sync-ok");
+		var sourceDictionary = System.IO.Path.Combine(args[0], "speechDicts", "default.dic");
+		var destinationDictionary = System.IO.Path.Combine(args[1], "speechDicts", "default.dic");
+		var dictionaries = SpeechDictionaryFileService.DiscoverDictionaryFiles(args[0]);
+		if (dictionaries.Count != 3)
+		{
+			Console.WriteLine("dictionary-discovery-count-failed count=" + dictionaries.Count);
+			return 29;
+		}
+		var parsedDictionary = SpeechDictionaryFileService.ParseFile(sourceDictionary);
+		if (parsedDictionary.Entries.Count != 2 || parsedDictionary.Entries[0].Pattern != "hash#tag" || parsedDictionary.Entries[0].Replacement != "replace#ment" || parsedDictionary.Entries[0].Comment != "first comment")
+		{
+			Console.WriteLine("dictionary-parse-failed count=" + parsedDictionary.Entries.Count);
+			return 30;
+		}
+		SpeechDictionaryFileService.CopyEntries(sourceDictionary, destinationDictionary, new[] { 0 });
+		var afterDictionaryCopy = SpeechDictionaryFileService.ParseFile(destinationDictionary);
+		if (afterDictionaryCopy.Entries.Count != 2 || afterDictionaryCopy.Entries[1].Pattern != "hash#tag")
+		{
+			Console.WriteLine("dictionary-copy-failed count=" + afterDictionaryCopy.Entries.Count);
+			return 31;
+		}
+		SpeechDictionaryFileService.MoveEntries(sourceDictionary, destinationDictionary, new[] { 1 });
+		var sourceAfterDictionaryMove = SpeechDictionaryFileService.ParseFile(sourceDictionary);
+		var destinationAfterDictionaryMove = SpeechDictionaryFileService.ParseFile(destinationDictionary);
+		if (sourceAfterDictionaryMove.Entries.Count != 1 || destinationAfterDictionaryMove.Entries.Count != 3)
+		{
+			Console.WriteLine("dictionary-move-failed source=" + sourceAfterDictionaryMove.Entries.Count + " destination=" + destinationAfterDictionaryMove.Entries.Count);
+			return 32;
+		}
+		SpeechDictionaryFileService.DeleteEntries(destinationDictionary, new[] { 0 });
+		var destinationAfterDictionaryDelete = SpeechDictionaryFileService.ParseFile(destinationDictionary);
+		if (destinationAfterDictionaryDelete.Entries.Count != 2)
+		{
+			Console.WriteLine("dictionary-delete-failed count=" + destinationAfterDictionaryDelete.Entries.Count);
+			return 33;
+		}
+		SpeechDictionaryFileService.ReplaceFile(sourceDictionary, destinationDictionary);
+		var destinationAfterDictionaryReplace = SpeechDictionaryFileService.ParseFile(destinationDictionary);
+		var bytes = System.IO.File.ReadAllBytes(destinationDictionary);
+		if (destinationAfterDictionaryReplace.Entries.Count != 1 || bytes.Length < 3 || bytes[0] != 0xEF || bytes[1] != 0xBB || bytes[2] != 0xBF)
+		{
+			Console.WriteLine("dictionary-replace-or-bom-failed count=" + destinationAfterDictionaryReplace.Entries.Count);
+			return 34;
+		}
+		Console.WriteLine("speech-dictionary-service-ok");
 		AddonPackService.ExportPackFile(args[0], args[7]);
 		if (!System.IO.File.Exists(args[7]) || System.IO.File.ReadAllText(args[7]).IndexOf("addonA", StringComparison.OrdinalIgnoreCase) < 0)
 		{
@@ -458,7 +509,7 @@ class Harness
 		$compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
 	}
 	$testExe = Join-Path $tempRoot "Harness.exe"
-	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SecondaryFolderProfile.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\PortableNvdaUpdateService.cs") (Join-Path $root "src\AddonPackService.cs") (Join-Path $root "src\NvdaIniSectionService.cs") $harness
+	& $compiler /nologo /target:exe /out:$testExe /reference:System.dll /reference:System.Core.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll (Join-Path $root "src\AppSettings.cs") (Join-Path $root "src\SecondaryFolderProfile.cs") (Join-Path $root "src\SyncEngine.cs") (Join-Path $root "src\PortableNvdaUpdateService.cs") (Join-Path $root "src\AddonPackService.cs") (Join-Path $root "src\NvdaIniSectionService.cs") (Join-Path $root "src\SpeechDictionaryFileService.cs") $harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
@@ -520,9 +571,11 @@ class Harness
 		'<h2 id="preferences">Preferences</h2>',
 		'<h2 id="secondary-properties">Secondary Folder Properties</h2>',
 		'<h2 id="ini-section-cleanup">INI Section Cleanup</h2>',
+		'<h2 id="dictionary-entries">Speech Dictionary Entries</h2>',
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.4.0</h3>',
 		'<h3>1.3.5</h3>',
 		'<h3>1.3.4</h3>',
 		'<h3>1.3.3</h3>',

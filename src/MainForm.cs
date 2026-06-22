@@ -237,6 +237,7 @@ namespace NvdaAddonSync
             cleanupMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up &nvda.ini sections...", null, delegate { OpenIniSectionManager(); }));
             cleanupMenu.DropDownItems.Add(new ToolStripMenuItem("Clean up &gesture sections...", null, delegate { OpenGestureSectionManager(); }));
             foldersMenu.DropDownItems.Add(cleanupMenu);
+            foldersMenu.DropDownItems.Add(new ToolStripMenuItem("Manage speech dictionar&y entries...", null, delegate { OpenSpeechDictionaryManager(); }));
 
             var addonsMenu = new ToolStripMenuItem("&Add-ons");
             addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Export add-on pack...", null, delegate { ExportAddonPack(); }));
@@ -825,6 +826,14 @@ namespace NvdaAddonSync
         private void OpenGestureSectionManager()
         {
             using (var dialog = new IniSectionManagerForm(settings, GetPrimaryFolder(), "gestures.ini", "Gestures.ini Section Cleanup"))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void OpenSpeechDictionaryManager()
+        {
+            using (var dialog = new SpeechDictionaryManagerForm(settings, GetPrimaryFolder()))
             {
                 dialog.ShowDialog(this);
             }
