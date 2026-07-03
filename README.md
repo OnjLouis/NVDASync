@@ -23,7 +23,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Both section cleanup tools include primary, secondary, and custom location choices, plus a read-only preview for the selected section.
 - Existing INI files are backed up before cleanup writes, and live NVDA profile edits warn before proceeding because NVDA can overwrite external edits from memory.
 - Section cleanup logs requested section changes, NVDA close and reopen activity, backup creation, file sizes before and after edits, and line counts removed.
-- The speech dictionary entry manager can sync one dictionary file or delete, copy, and move selected dictionary entries between NVDA folders while preserving NVDA's dictionary format.
+- The speech dictionary entry manager can sync one dictionary file, import a received `.dic` file into a chosen NVDA folder and inferred dictionary location, or delete, copy, and move selected dictionary entries between NVDA folders while preserving NVDA's dictionary format.
 - Existing speech dictionaries are backed up before dictionary-entry writes, and live NVDA profile edits warn before proceeding for dictionary files too.
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.

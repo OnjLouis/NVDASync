@@ -163,7 +163,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.4.0"
+Assert-ChangelogClean "1.4.1"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -362,6 +362,32 @@ class Harness
 		{
 			Console.WriteLine("dictionary-replace-or-bom-failed count=" + destinationAfterDictionaryReplace.Entries.Count);
 			return 34;
+		}
+		var importRoot = System.IO.Path.Combine(args[0], "importSamples");
+		System.IO.Directory.CreateDirectory(importRoot);
+		var importDefault = System.IO.Path.Combine(importRoot, "default.dic");
+		var importVoice = System.IO.Path.Combine(importRoot, "orpheus-Synthetic Dave.dic");
+		var importLegacy = System.IO.Path.Combine(importRoot, "legacyVoice.dic");
+		var importStructured = System.IO.Path.Combine(importRoot, "speechDicts", "voiceDicts.v1", "sonata", "sonata-Kirsten.dic");
+		System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(importStructured));
+		System.IO.File.WriteAllText(importDefault, "importDefault\tdefault replacement\t1\t0\r\n", new System.Text.UTF8Encoding(true));
+		System.IO.File.WriteAllText(importVoice, "importVoice\tvoice replacement\t1\t0\r\n", new System.Text.UTF8Encoding(true));
+		System.IO.File.WriteAllText(importLegacy, "importLegacy\tlegacy replacement\t1\t0\r\n", new System.Text.UTF8Encoding(true));
+		System.IO.File.WriteAllText(importStructured, "importStructured\tstructured replacement\t1\t0\r\n", new System.Text.UTF8Encoding(true));
+		if (SpeechDictionaryFileService.InferImportRelativePath(importDefault) != "default.dic" ||
+			SpeechDictionaryFileService.InferImportRelativePath(importVoice) != System.IO.Path.Combine("voiceDicts.v1", "orpheus", "orpheus-Synthetic Dave.dic") ||
+			SpeechDictionaryFileService.InferImportRelativePath(importLegacy) != "legacyVoice.dic" ||
+			SpeechDictionaryFileService.InferImportRelativePath(importStructured) != System.IO.Path.Combine("voiceDicts.v1", "sonata", "sonata-Kirsten.dic"))
+		{
+			Console.WriteLine("dictionary-import-inference-failed");
+			return 35;
+		}
+		SpeechDictionaryFileService.ImportFile(importVoice, args[1]);
+		var importedVoice = System.IO.Path.Combine(args[1], "speechDicts", "voiceDicts.v1", "orpheus", "orpheus-Synthetic Dave.dic");
+		if (!System.IO.File.Exists(importedVoice) || SpeechDictionaryFileService.ParseFile(importedVoice).Entries[0].Pattern != "importVoice")
+		{
+			Console.WriteLine("dictionary-import-write-failed");
+			return 36;
 		}
 		Console.WriteLine("speech-dictionary-service-ok");
 		AddonPackService.ExportPackFile(args[0], args[7]);
@@ -575,7 +601,7 @@ class Harness
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
-		'<h3>1.4.0</h3>',
+		'<h3>1.4.1</h3>',
 		'<h3>1.3.5</h3>',
 		'<h3>1.3.4</h3>',
 		'<h3>1.3.3</h3>',

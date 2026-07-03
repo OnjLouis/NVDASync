@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.4.0.</p>
+	<p>Current version: 1.4.1.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -150,6 +150,7 @@
 		</thead>
 		<tbody>
 			<tr><td>Sync whole dictionary</td><td>Replaces the destination dictionary with the selected source dictionary.</td><td>This is whole-file sync for one dictionary. A backup is created beside an existing destination dictionary before it is replaced.</td></tr>
+			<tr><td>Import .dic file</td><td>Imports an NVDA speech dictionary file into a chosen NVDA folder.</td><td>After choosing the source <code>.dic</code> file, choose the target NVDA folder from your configured folders or browse to another one. <code>default.dic</code> is imported as the default dictionary. Files already arranged under <code>speechDicts</code> keep their relative location. Standalone files named like <code>synth-voice.dic</code> are imported as current voice dictionaries under <code>speechDicts\voiceDicts.v1\synth</code>. Other <code>.dic</code> files are imported as legacy voice dictionaries directly under <code>speechDicts</code>.</td></tr>
 			<tr><td>Delete selected</td><td>Removes the selected entries from the source dictionary.</td><td>A backup is created beside the source dictionary before it is changed.</td></tr>
 			<tr><td>Copy selected</td><td>Appends the selected entries to the destination dictionary.</td><td>The source dictionary is unchanged. Duplicate patterns are allowed because NVDA dictionaries can legitimately contain overlapping entries.</td></tr>
 			<tr><td>Move selected</td><td>Appends the selected entries to the destination dictionary, then removes them from the source dictionary.</td><td>Destination writes happen before source removal so a failed destination write does not lose source entries.</td></tr>
@@ -284,6 +285,11 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.4.1</h3>
+	<ul>
+		<li>Added speech dictionary import for received <code>.dic</code> files. After choosing the source file, NVDA Sync asks for the target NVDA folder explicitly, infers the dictionary location from the file name and any existing <code>speechDicts</code> folder structure, then imports through the same backup and live-NVDA warning flow as other dictionary operations.</li>
+	</ul>
 
 	<h3>1.4.0</h3>
 	<ul>

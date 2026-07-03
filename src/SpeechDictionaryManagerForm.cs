@@ -169,6 +169,12 @@ namespace NvdaAddonSync
             syncWholeButton.Click += delegate { SyncWholeDictionary(); };
             actionsPanel.Controls.Add(syncWholeButton);
 
+            var importButton = new Button();
+            importButton.Text = "&Import .dic file";
+            importButton.AutoSize = true;
+            importButton.Click += delegate { ImportDictionaryFile(); };
+            actionsPanel.Controls.Add(importButton);
+
             var deleteButton = new Button();
             deleteButton.Text = "De&lete selected";
             deleteButton.AutoSize = true;
@@ -239,6 +245,12 @@ namespace NvdaAddonSync
             {
                 return Label;
             }
+        }
+
+        private sealed class ImportTargetSelection
+        {
+            public string Folder { get; set; }
+            public string Label { get; set; }
         }
 
         private void LoadLocations(string initialFolder)
@@ -549,6 +561,233 @@ namespace NvdaAddonSync
             LiveNvdaGuard.Relaunch(relaunchNvda, AddLog);
             LoadDestinationDictionaries();
             FocusLog();
+        }
+
+        private void ImportDictionaryFile()
+        {
+            string importPath;
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Import NVDA speech dictionary";
+                dialog.Filter = "NVDA speech dictionaries (*.dic)|*.dic|All files (*.*)|*.*";
+                dialog.CheckFileExists = true;
+                dialog.Multiselect = false;
+                var initialImportFolder = currentSourceDictionary == null ? currentSourceFolder : Path.GetDirectoryName(currentSourceDictionary.Path);
+                if (!string.IsNullOrWhiteSpace(initialImportFolder) && Directory.Exists(initialImportFolder))
+                {
+                    dialog.InitialDirectory = initialImportFolder;
+                }
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                importPath = dialog.FileName;
+            }
+
+            var destinationSelection = ChooseImportDestinationFolder(importPath);
+            if (destinationSelection == null)
+            {
+                AddLog("Dictionary import cancelled before choosing a target NVDA folder.");
+                FocusLog();
+                return;
+            }
+
+            var destinationFolder = destinationSelection.Folder;
+            try
+            {
+                destinationFolder = SyncEngine.ResolveNvdaConfigDirectory(destinationFolder, "Import target NVDA folder", false);
+            }
+            catch (Exception ex)
+            {
+                AddLog("Could not open import target NVDA folder: " + ex.Message);
+                FocusLog();
+                return;
+            }
+
+            string relativePath;
+            string destinationPath;
+            int entryCount;
+            try
+            {
+                relativePath = SpeechDictionaryFileService.InferImportRelativePath(importPath);
+                destinationPath = SpeechDictionaryFileService.BuildDestinationPath(destinationFolder, relativePath);
+                entryCount = SpeechDictionaryFileService.ParseFile(importPath).Entries.Count;
+                if (entryCount == 0)
+                {
+                    AddLog("Import failed: the selected .dic file does not contain any dictionary entries.");
+                    FocusLog();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog("Import failed: " + ex.Message);
+                FocusLog();
+                return;
+            }
+
+            var message = new StringBuilder();
+            message.AppendLine("Import this NVDA speech dictionary?");
+            message.AppendLine();
+            message.AppendLine("Source:");
+            message.AppendLine(importPath);
+            message.AppendLine();
+            message.AppendLine("Destination:");
+            message.AppendLine(destinationPath);
+            message.AppendLine();
+            message.AppendLine("Target folder:");
+            message.AppendLine(destinationSelection.Label);
+            message.AppendLine();
+            message.AppendLine("Inferred location:");
+            message.AppendLine(relativePath);
+            message.AppendLine();
+            message.AppendLine("Entries: " + entryCount);
+            message.AppendLine("NVDA Sync will create a backup beside the destination dictionary before replacing it.");
+            var confirmation = MessageBox.Show(this, message.ToString(), "Import speech dictionary", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (confirmation != DialogResult.OK)
+            {
+                return;
+            }
+
+            AddLog("Requested dictionary import from " + importPath + " to " + destinationPath);
+            var relaunchNvda = LiveNvdaGuard.PrepareForWrites(this, new[] { destinationPath }, "speech dictionary", AddLog);
+            if (relaunchNvda == null)
+            {
+                AddLog("Dictionary import cancelled.");
+                FocusLog();
+                return;
+            }
+            try
+            {
+                SpeechDictionaryFileService.ImportFile(importPath, destinationFolder);
+            }
+            catch (Exception ex)
+            {
+                AddLog("Dictionary import failed: " + ex.Message);
+            }
+            LiveNvdaGuard.Relaunch(relaunchNvda, AddLog);
+            LoadDestinationDictionaries();
+            FocusLog();
+        }
+
+        private ImportTargetSelection ChooseImportDestinationFolder(string importPath)
+        {
+            using (var dialog = new Form())
+            {
+                dialog.Text = "Choose import target";
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.MinimizeBox = false;
+                dialog.MaximizeBox = false;
+                dialog.ShowInTaskbar = false;
+                dialog.Width = 680;
+                dialog.Height = 220;
+
+                var root = new TableLayoutPanel();
+                root.Dock = DockStyle.Fill;
+                root.Padding = new Padding(12);
+                root.RowCount = 4;
+                root.ColumnCount = 2;
+                root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                dialog.Controls.Add(root);
+
+                var explanation = new Label();
+                explanation.AutoSize = true;
+                explanation.Dock = DockStyle.Top;
+                explanation.Text = "Choose the NVDA folder that should receive this dictionary. The source file can be anywhere.";
+                root.Controls.Add(explanation, 0, 0);
+                root.SetColumnSpan(explanation, 2);
+
+                var sourceLabel = new Label();
+                sourceLabel.AutoSize = true;
+                sourceLabel.Dock = DockStyle.Top;
+                sourceLabel.Padding = new Padding(0, 8, 0, 8);
+                sourceLabel.Text = "File: " + importPath;
+                root.Controls.Add(sourceLabel, 0, 1);
+                root.SetColumnSpan(sourceLabel, 2);
+
+                var targetComboBox = new ComboBox();
+                targetComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+                targetComboBox.Dock = DockStyle.Top;
+                targetComboBox.AccessibleName = "Import target NVDA folder";
+                root.Controls.Add(targetComboBox, 0, 2);
+
+                foreach (var target in ImportTargetOptions())
+                {
+                    targetComboBox.Items.Add(target);
+                }
+                if (targetComboBox.Items.Count > 0)
+                {
+                    targetComboBox.SelectedIndex = 0;
+                }
+
+                var browseButton = new Button();
+                browseButton.Text = "&Browse...";
+                browseButton.AutoSize = true;
+                browseButton.Click += delegate
+                {
+                    var selected = BrowseFolder(DestinationFolder(), "Choose import target NVDA folder");
+                    if (selected == null)
+                    {
+                        return;
+                    }
+                    var custom = new FolderLocationOption { Label = "Custom folder: " + selected, Folder = selected };
+                    targetComboBox.Items.Add(custom);
+                    targetComboBox.SelectedItem = custom;
+                };
+                root.Controls.Add(browseButton, 1, 2);
+
+                var buttonsPanel = new FlowLayoutPanel();
+                buttonsPanel.AutoSize = true;
+                buttonsPanel.Dock = DockStyle.Bottom;
+                buttonsPanel.FlowDirection = FlowDirection.RightToLeft;
+                root.Controls.Add(buttonsPanel, 0, 3);
+                root.SetColumnSpan(buttonsPanel, 2);
+
+                var okButton = new Button();
+                okButton.Text = "OK";
+                okButton.AutoSize = true;
+                okButton.DialogResult = DialogResult.OK;
+                buttonsPanel.Controls.Add(okButton);
+
+                var cancelButton = new Button();
+                cancelButton.Text = "Cancel";
+                cancelButton.AutoSize = true;
+                cancelButton.DialogResult = DialogResult.Cancel;
+                buttonsPanel.Controls.Add(cancelButton);
+
+                dialog.AcceptButton = okButton;
+                dialog.CancelButton = cancelButton;
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return null;
+                }
+                var option = targetComboBox.SelectedItem as FolderLocationOption;
+                if (option == null || string.IsNullOrWhiteSpace(option.Folder))
+                {
+                    return null;
+                }
+                return new ImportTargetSelection { Folder = option.Folder, Label = option.Label };
+            }
+        }
+
+        private IEnumerable<FolderLocationOption> ImportTargetOptions()
+        {
+            foreach (var item in destinationLocationComboBox.Items)
+            {
+                var option = item as FolderLocationOption;
+                if (option == null || string.IsNullOrWhiteSpace(option.Folder))
+                {
+                    continue;
+                }
+                yield return new FolderLocationOption { Label = option.Label, Folder = option.Folder };
+            }
         }
 
         private void DeleteSelectedEntries()

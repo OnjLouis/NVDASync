@@ -264,6 +264,70 @@ namespace NvdaAddonSync
             return Path.Combine(Path.Combine(nvdaConfigFolder, "speechDicts"), relativeDictionaryPath ?? "default.dic");
         }
 
+        public static string InferImportRelativePath(string importPath)
+        {
+            if (string.IsNullOrWhiteSpace(importPath))
+            {
+                throw new ArgumentException("No dictionary file was supplied.", "importPath");
+            }
+            var fileName = Path.GetFileName(importPath);
+            if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".dic", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Choose an NVDA .dic speech dictionary file.");
+            }
+            if (string.Equals(fileName, "default.dic", StringComparison.OrdinalIgnoreCase))
+            {
+                return "default.dic";
+            }
+
+            var speechDictsRelative = RelativePathAfterFolder(importPath, "speechDicts");
+            if (!string.IsNullOrWhiteSpace(speechDictsRelative))
+            {
+                return speechDictsRelative;
+            }
+
+            var parent = Path.GetDirectoryName(importPath);
+            var grandParent = string.IsNullOrWhiteSpace(parent) ? string.Empty : Path.GetDirectoryName(parent);
+            if (!string.IsNullOrWhiteSpace(parent) &&
+                !string.IsNullOrWhiteSpace(grandParent) &&
+                string.Equals(Path.GetFileName(grandParent), "voiceDicts.v1", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.Combine("voiceDicts.v1", Path.GetFileName(parent), fileName);
+            }
+
+            var baseName = Path.GetFileNameWithoutExtension(fileName);
+            var dash = string.IsNullOrEmpty(baseName) ? -1 : baseName.IndexOf('-');
+            if (dash > 0)
+            {
+                var synth = baseName.Substring(0, dash).Trim();
+                if (IsSafePathPart(synth))
+                {
+                    return Path.Combine("voiceDicts.v1", synth, fileName);
+                }
+            }
+
+            return fileName;
+        }
+
+        public static IniSectionOperationResult ImportFile(string importPath, string nvdaConfigFolder)
+        {
+            if (!File.Exists(importPath))
+            {
+                throw new FileNotFoundException("Import dictionary was not found.", importPath);
+            }
+            var parsed = ParseFile(importPath);
+            if (parsed.Entries.Count == 0)
+            {
+                throw new InvalidOperationException("The selected .dic file does not contain any dictionary entries.");
+            }
+            var relativePath = InferImportRelativePath(importPath);
+            var destinationPath = BuildDestinationPath(nvdaConfigFolder, relativePath);
+            var result = ReplaceFile(importPath, destinationPath);
+            result.Message = "Imported speech dictionary to " + destinationPath;
+            Notify(result.Message);
+            return result;
+        }
+
         private static IniSectionOperationResult CopyOrMoveEntries(string sourceDicPath, string destinationDicPath, IEnumerable<int> sourceIndices, bool move)
         {
             var source = ParseFile(sourceDicPath);
@@ -602,6 +666,41 @@ namespace NvdaAddonSync
             var pathUri = new Uri(path);
             var relative = Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString());
             return relative.Replace('/', Path.DirectorySeparatorChar);
+        }
+
+        private static string RelativePathAfterFolder(string path, string folderName)
+        {
+            var parts = new List<string>();
+            var current = Path.GetFullPath(path);
+            while (!string.IsNullOrWhiteSpace(current))
+            {
+                parts.Insert(0, Path.GetFileName(current));
+                var parent = Path.GetDirectoryName(current);
+                if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                current = parent;
+            }
+            for (var index = 0; index < parts.Count - 1; index++)
+            {
+                if (string.Equals(parts[index], folderName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Path.Combine(parts.GetRange(index + 1, parts.Count - index - 1).ToArray());
+                }
+            }
+            return string.Empty;
+        }
+
+        private static bool IsSafePathPart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+            return value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+                   value.IndexOf(Path.DirectorySeparatorChar) < 0 &&
+                   value.IndexOf(Path.AltDirectorySeparatorChar) < 0;
         }
 
         private static string FormatCount(int count, string singular, string plural)
