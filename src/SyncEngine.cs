@@ -92,6 +92,7 @@ namespace NvdaAddonSync
     {
         public bool DeleteStaleItems { get; set; }
         public bool ExcludePythonCache { get; set; }
+        public bool ExcludeLogFiles { get; set; }
         public List<SyncComponent> Components { get; set; }
         public string AddonMode { get; set; }
         public CancellationToken CancellationToken { get; set; }
@@ -637,26 +638,130 @@ namespace NvdaAddonSync
 
         private static bool ShouldIgnore(string path, SyncOptions options)
         {
-            if (!options.ExcludePythonCache)
-            {
-                return false;
-            }
             var name = Path.GetFileName(path);
-            if (string.Equals(name, "__pycache__", StringComparison.OrdinalIgnoreCase))
+            if (IsTransientBrowserProfileFile(path))
             {
                 return true;
             }
-            if (string.Equals(Path.GetExtension(path), ".pyc", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(Path.GetExtension(path), ".pyo", StringComparison.OrdinalIgnoreCase))
+            if (options.ExcludeLogFiles && string.Equals(Path.GetExtension(path), ".log", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
-            return ContainsPathSegment(path, "__pycache__");
+            if (options.ExcludePythonCache)
+            {
+                if (string.Equals(name, "__pycache__", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (string.Equals(Path.GetExtension(path), ".pyc", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Path.GetExtension(path), ".pyo", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                return ContainsPathSegment(path, "__pycache__");
+            }
+            return false;
         }
 
         private static bool ShouldIgnoreDirectory(string path, SyncOptions options)
         {
-            return options.ExcludePythonCache && ContainsPathSegment(path, "__pycache__");
+            return (options.ExcludePythonCache && ContainsPathSegment(path, "__pycache__"))
+                || IsTransientBrowserProfileDirectory(path);
+        }
+
+        private static bool IsTransientBrowserProfileFile(string path)
+        {
+            if (!LooksLikeBrowserProfilePath(path))
+            {
+                return false;
+            }
+
+            if (ContainsAnyPathSegment(path, new[]
+            {
+                "Cache",
+                "Cache_Data",
+                "Code Cache",
+                "DawnGraphiteCache",
+                "DawnWebGPUCache",
+                "GPUCache",
+                "GrShaderCache",
+                "ShaderCache",
+                "Session Storage",
+                "Sessions",
+                "segmentation_platform",
+                "Service Worker",
+                "Site Characteristics Database"
+            }))
+            {
+                return true;
+            }
+
+            var name = Path.GetFileName(path);
+            if (string.Equals(name, "History", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Top Sites", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Cookies", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Safe Browsing Cookies", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Reporting and NEL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "QuotaManager", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("-journal", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("-wal", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(Path.GetExtension(name), ".tmp", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsTransientBrowserProfileDirectory(string path)
+        {
+            if (!LooksLikeBrowserProfilePath(path))
+            {
+                return false;
+            }
+            return ContainsAnyPathSegment(path, new[]
+            {
+                "Cache",
+                "Cache_Data",
+                "Code Cache",
+                "DawnGraphiteCache",
+                "DawnWebGPUCache",
+                "GPUCache",
+                "GrShaderCache",
+                "ShaderCache",
+                "Session Storage",
+                "Sessions",
+                "segmentation_platform",
+                "Service Worker",
+                "Site Characteristics Database"
+            });
+        }
+
+        private static bool LooksLikeBrowserProfilePath(string path)
+        {
+            return ContainsAnyPathSegment(path, new[]
+            {
+                "chromeProfiles",
+                "ChromeProfile",
+                "Default",
+                "Network",
+                "WebStorage",
+                "Safe Browsing Network",
+                "GPUPersistentCache",
+                "Safe Browsing Cookies"
+            });
+        }
+
+        private static bool ContainsAnyPathSegment(string path, IEnumerable<string> segments)
+        {
+            foreach (var segment in segments)
+            {
+                if (ContainsPathSegment(path, segment))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool ContainsPathSegment(string path, string segment)

@@ -61,6 +61,12 @@ namespace NvdaAddonSync
         public bool ExcludePythonCache { get; set; }
 
         [DataMember]
+        public bool ExcludeLogFiles { get; set; }
+
+        [DataMember]
+        public bool WriteLogFile { get; set; }
+
+        [DataMember]
         public int SettingsVersion { get; set; }
 
         [DataMember]
@@ -106,7 +112,9 @@ namespace NvdaAddonSync
             SyncNvdaProgramFiles = false;
             CreateProgramBackups = true;
             ExcludePythonCache = true;
-            SettingsVersion = 2;
+            ExcludeLogFiles = true;
+            WriteLogFile = false;
+            SettingsVersion = 4;
             WindowWidth = 820;
             WindowHeight = 560;
             UpdateCheckFrequency = "Startup";
@@ -208,7 +216,22 @@ namespace NvdaAddonSync
             {
                 CreateProgramBackups = true;
             }
-            SettingsVersion = 2;
+            if (loadedSettingsVersion < 3)
+            {
+                ExcludeLogFiles = true;
+                foreach (var profile in SecondaryFolderProfiles)
+                {
+                    if (profile != null)
+                    {
+                        profile.ExcludeLogFiles = true;
+                    }
+                }
+            }
+            if (loadedSettingsVersion < 4)
+            {
+                WriteLogFile = false;
+            }
+            SettingsVersion = 4;
             if (!SyncAddons
                 && !SyncInputGestures
                 && !SyncNvdaIni

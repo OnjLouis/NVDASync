@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.4.1.</p>
+	<p>Current version: 1.4.2.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -69,7 +69,7 @@
 		</thead>
 		<tbody>
 			<tr><td>Sync</td><td>Choose which NVDA components are synced, choose the default add-on mode, choose whether portable NVDA program files are updated, choose whether program updates create ZIP backups, enable or disable primary-folder watching, read the watch timing, and choose whether stale items are deleted from secondary folders.</td></tr>
-			<tr><td>Files</td><td>Choose whether Python cache files are excluded. This is on by default.</td></tr>
+			<tr><td>Files</td><td>Choose whether Python cache files and log files are excluded, and whether NVDA Sync writes a rolling log file beside the app. Cache and log-file exclusion are on by default; rolling file logging is off by default.</td></tr>
 			<tr><td>Startup and updates</td><td>Choose whether NVDA Sync runs when Windows starts, whether it starts minimised to the notification area, how often it checks GitHub releases, and whether automatic checks may install updates silently when possible.</td></tr>
 		</tbody>
 	</table>
@@ -186,6 +186,9 @@
 	<p>Files that are missing or different in a secondary folder are copied from the primary folder. File replacement is staged through a temporary file before the destination is replaced.</p>
 	<p>When <strong>Delete stale items from secondary folders</strong> is enabled, files and folders that exist only in a selected secondary component are removed so the secondary matches the primary for that component.</p>
 	<p><strong>Exclude Python cache files</strong> is enabled by default. This skips <code>__pycache__</code> folders, <code>.pyc</code> files, and <code>.pyo</code> files while copying. When stale deletion is enabled, existing Python cache files in secondary folders are removed. NVDA and add-ons can rebuild those files when needed, and excluding them avoids wasting space on removable drives with large cluster sizes.</p>
+	<p><strong>Exclude log files</strong> is also enabled by default. This skips <code>.log</code> files during user-configuration sync and removes stale copied logs when stale deletion is enabled. Logs are normally machine-local support files, so syncing them between NVDA copies is rarely useful.</p>
+	<p>NVDA Sync also skips transient browser-profile cache and session files created by add-ons that embed Chrome or WebView-style data. These files are often locked while NVDA is running and are normally rebuilt by the add-on, so they are treated like cache rather than reported as sync errors.</p>
+	<p><strong>Write rolling log file</strong> is off by default. The visible log in the main window still works during each run. Enable file logging only when you want a persistent <code>Logs\NVDASync.log</code> for troubleshooting, or use <strong>Options &gt; Save log</strong> to save the visible log manually.</p>
 	<p>Auto-sync uses file-system change events from the primary folder and waits 1.5 seconds after the last change before syncing. Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
 	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, unavailable secondary folders are checked again every 60 seconds and synced after they become available.</p>
 	<p>The notification area tooltip reports the current state, such as ready, watching, syncing, waiting for a drive, or finished with errors.</p>
@@ -255,6 +258,8 @@
 			<tr><td><code>NVDASync.exe --install-addons "folder"</code></td><td>Install local add-ons from a folder into secondary folders only. Use one or more <code>--secondary</code> switches to override saved secondary folders.</td></tr>
 			<tr><td><code>NVDASync.exe --exclude-python-cache</code></td><td>Skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files.</td></tr>
 			<tr><td><code>NVDASync.exe --include-python-cache</code></td><td>Copy Python cache files.</td></tr>
+			<tr><td><code>NVDASync.exe --exclude-log-files</code></td><td>Skip <code>.log</code> files.</td></tr>
+			<tr><td><code>NVDASync.exe --include-log-files</code></td><td>Copy log files.</td></tr>
 			<tr><td><code>NVDASync.exe --save</code></td><td>Save command-line folder choices, components, and options back to the app settings.</td></tr>
 			<tr><td><code>NVDASync.exe --apply-update ...</code></td><td>Internal updater command used by NVDA Sync when installing a GitHub release ZIP.</td></tr>
 			<tr><td><code>NVDASync.exe --version</code></td><td>Show version information.</td></tr>
@@ -272,19 +277,27 @@
 			<tr><td><code>Manual.html</code></td><td>This manual.</td></tr>
 			<tr><td><code>LICENSE.txt</code></td><td>The application license.</td></tr>
 			<tr><td><code>Settings\settings.json</code></td><td>Settings saved beside the app. Moving the app folder moves its settings with it.</td></tr>
-			<tr><td><code>Logs\NVDASync.log</code></td><td>Rolling app log. It is created automatically and rotated to <code>NVDASync.old.log</code> when it grows large.</td></tr>
+			<tr><td><code>Logs\NVDASync.log</code></td><td>Rolling app log. It is written only when file logging is enabled in Preferences and rotated to <code>NVDASync.old.log</code> when it grows large.</td></tr>
 			<tr><td><code>Logs\Update.log</code></td><td>Updater progress log.</td></tr>
 			<tr><td><code>Logs\Updater.log</code></td><td>Updater error log, created only when an update fails.</td></tr>
 		</tbody>
 	</table>
 
 	<h2 id="logs-and-updates">Logs and Updates</h2>
-	<p>NVDA Sync writes a rolling log beside the app in <code>Logs\NVDASync.log</code>. Use <strong>Options &gt; Save log</strong> to save the visible output to a chosen text file for support.</p>
+	<p>NVDA Sync shows run details in the main-window log. Use <strong>Options &gt; Save log</strong> to save the visible output to a chosen text file for support. If <strong>Write rolling log file</strong> is enabled in Preferences, NVDA Sync also writes <code>Logs\NVDASync.log</code> beside the app.</p>
 	<p>Use <strong>Help &gt; Check for updates</strong> or Shift+F1 to check GitHub releases at <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>. If a newer release includes a ZIP package, NVDA Sync can download it, close, replace the files in the current folder while preserving <code>Settings</code>, <code>Logs</code>, and <code>Backups</code>, then restart.</p>
 	<p>Use <strong>Preferences &gt; Startup and updates</strong> to choose whether NVDA Sync checks for updates never, at startup, hourly, or daily. New installations check at startup by default so users hear about fixes without opening Preferences first. If <strong>Install updates silently when possible</strong> is enabled, automatic checks can install a newer ZIP release without prompting. Manual update checks still show the normal update dialog.</p>
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.4.2</h3>
+	<ul>
+		<li>Added an option to exclude <code>.log</code> files from user-configuration sync. It is enabled by default, and stale copied logs are removed when stale deletion is enabled.</li>
+		<li>Added an option to write the rolling <code>Logs\NVDASync.log</code> file. It is off by default to avoid unnecessary writes in Dropbox or other cloud-synced app folders.</li>
+		<li>Reduced noisy sync errors from add-on browser-profile caches by ignoring transient Chrome/WebView-style cache, session, cookie, and sidecar files that are commonly locked while NVDA is running.</li>
+		<li>Added coverage for portable program-file updates that include <code>systemConfig\addons</code>, so add-ons bundled with the installed NVDA program folder are expected to travel during program-file updates.</li>
+	</ul>
 
 	<h3>1.4.1</h3>
 	<ul>
@@ -372,7 +385,7 @@
 		<li>Added Folders, Options, and Help menus, plus live Preferences with Sync, Files, and Startup and updates tabs.</li>
 		<li>Added Windows startup, start-minimised, automatic update-check, and optional silent update preferences.</li>
 		<li>Added command-line switches for showing, closing, syncing the running app, one-shot syncs, component selection, cache handling, saving settings, version output, and help.</li>
-		<li>Added app-local settings, rolling logs, save-log support, updater logs, and GitHub release update checks.</li>
+		<li>Added app-local settings, optional rolling logs, save-log support, updater logs, and GitHub release update checks.</li>
 	</ul>
 
 	<h2 id="license">License</h2>

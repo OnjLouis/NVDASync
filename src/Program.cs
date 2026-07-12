@@ -10,7 +10,7 @@ namespace NvdaAddonSync
     internal static partial class Program
     {
         internal const string ProductName = "NVDA Sync";
-        internal const string Version = "1.4.1";
+        internal const string Version = "1.4.2";
         internal const string Author = "Andre Louis";
 
         [STAThread]
@@ -280,6 +280,10 @@ namespace NvdaAddonSync
             {
                 settings.ExcludePythonCache = options.ExcludePythonCacheOverride.Value;
             }
+            if (options.ExcludeLogFilesOverride.HasValue)
+            {
+                settings.ExcludeLogFiles = options.ExcludeLogFilesOverride.Value;
+            }
             var components = options.GetComponentsOrDefault(settings);
             ApplyComponentsToSettings(settings, components);
             if (options.SaveSettings)
@@ -294,6 +298,7 @@ namespace NvdaAddonSync
                 {
                     DeleteStaleItems = settings.DeleteStaleItems,
                     ExcludePythonCache = settings.ExcludePythonCache,
+                    ExcludeLogFiles = settings.ExcludeLogFiles,
                     Components = components
                 }
             );
@@ -419,6 +424,7 @@ namespace NvdaAddonSync
         public string InstallAddonsFolder { get; private set; }
         public bool? DeleteStaleOverride { get; private set; }
         public bool? ExcludePythonCacheOverride { get; private set; }
+        public bool? ExcludeLogFilesOverride { get; private set; }
         public bool AllComponents { get; private set; }
         public List<string> ComponentIds { get; private set; }
         public List<string> SecondaryFolders { get; private set; }
@@ -478,6 +484,12 @@ namespace NvdaAddonSync
                         break;
                     case "--include-python-cache":
                         options.ExcludePythonCacheOverride = false;
+                        break;
+                    case "--exclude-log-files":
+                        options.ExcludeLogFilesOverride = true;
+                        break;
+                    case "--include-log-files":
+                        options.ExcludeLogFilesOverride = false;
                         break;
                     case "--all-components":
                         options.AllComponents = true;
@@ -557,6 +569,8 @@ namespace NvdaAddonSync
                     "--install-addons <folder> Install local add-ons from a folder into secondary folders only.",
                     "--exclude-python-cache Exclude __pycache__, .pyc, and .pyo files.",
                     "--include-python-cache Include Python cache files.",
+                    "--exclude-log-files   Exclude .log files.",
+                    "--include-log-files   Include .log files.",
                     "--save                 Save command-line folders/options to app settings.",
                     "--version              Show version information.",
                     "--help                 Show this help."

@@ -72,6 +72,9 @@ namespace NvdaAddonSync
         [DataMember]
         public bool ExcludePythonCache { get; set; }
 
+        [DataMember]
+        public bool ExcludeLogFiles { get; set; }
+
         public SecondaryFolderProfile()
         {
             Path = "";
@@ -79,6 +82,7 @@ namespace NvdaAddonSync
             SyncAddons = true;
             AddonMode = AddonSyncMode.All;
             ExcludePythonCache = true;
+            ExcludeLogFiles = true;
             DeleteStaleItems = true;
             CreateProgramBackups = true;
         }
@@ -112,7 +116,8 @@ namespace NvdaAddonSync
                     SyncNvdaProgramFiles = settings.SyncNvdaProgramFiles,
                     CreateProgramBackups = settings.CreateProgramBackups,
                     DeleteStaleItems = settings.DeleteStaleItems,
-                    ExcludePythonCache = settings.ExcludePythonCache
+                    ExcludePythonCache = settings.ExcludePythonCache,
+                    ExcludeLogFiles = settings.ExcludeLogFiles
                 };
             }
 
@@ -133,7 +138,8 @@ namespace NvdaAddonSync
                 SyncNvdaProgramFiles = SyncNvdaProgramFiles,
                 CreateProgramBackups = CreateProgramBackups,
                 DeleteStaleItems = DeleteStaleItems,
-                ExcludePythonCache = ExcludePythonCache
+                ExcludePythonCache = ExcludePythonCache,
+                ExcludeLogFiles = ExcludeLogFiles
             };
         }
 
@@ -153,6 +159,7 @@ namespace NvdaAddonSync
         public bool CreateProgramBackups { get; set; }
         public bool DeleteStaleItems { get; set; }
         public bool ExcludePythonCache { get; set; }
+        public bool ExcludeLogFiles { get; set; }
 
         public bool HasWork
         {

@@ -15,6 +15,7 @@ namespace NvdaAddonSync
         private readonly CheckBox createProgramBackupsCheckBox;
         private readonly CheckBox deleteStaleCheckBox;
         private readonly CheckBox excludePythonCacheCheckBox;
+        private readonly CheckBox excludeLogFilesCheckBox;
         private bool loading;
 
         public SecondaryFolderPropertiesForm(SecondaryFolderProfile profile, AppSettings settings)
@@ -124,6 +125,12 @@ namespace NvdaAddonSync
             excludePythonCacheCheckBox.CheckedChanged += delegate { SaveToProfile(); };
             optionsPanel.Controls.Add(excludePythonCacheCheckBox);
 
+            excludeLogFilesCheckBox = new CheckBox();
+            excludeLogFilesCheckBox.Text = "Exclude &log files";
+            excludeLogFilesCheckBox.AutoSize = true;
+            excludeLogFilesCheckBox.CheckedChanged += delegate { SaveToProfile(); };
+            optionsPanel.Controls.Add(excludeLogFilesCheckBox);
+
             var buttons = new FlowLayoutPanel();
             buttons.Dock = DockStyle.Fill;
             buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -160,6 +167,7 @@ namespace NvdaAddonSync
             createProgramBackupsCheckBox.Checked = profile.CreateProgramBackups;
             deleteStaleCheckBox.Checked = profile.DeleteStaleItems;
             excludePythonCacheCheckBox.Checked = profile.ExcludePythonCache;
+            excludeLogFilesCheckBox.Checked = profile.ExcludeLogFiles;
             loading = false;
             ApplyEnabledState();
         }
@@ -183,6 +191,7 @@ namespace NvdaAddonSync
             profile.CreateProgramBackups = createProgramBackupsCheckBox.Checked;
             profile.DeleteStaleItems = deleteStaleCheckBox.Checked;
             profile.ExcludePythonCache = excludePythonCacheCheckBox.Checked;
+            profile.ExcludeLogFiles = excludeLogFilesCheckBox.Checked;
             profile.Normalize();
         }
 
@@ -195,6 +204,7 @@ namespace NvdaAddonSync
             createProgramBackupsCheckBox.Enabled = enabled;
             deleteStaleCheckBox.Enabled = enabled;
             excludePythonCacheCheckBox.Enabled = enabled;
+            excludeLogFilesCheckBox.Enabled = enabled;
             if (useDefaultsCheckBox.Checked)
             {
                 var text = "This secondary folder uses the global defaults: " + AddonSyncMode.DisplayName(settings.DefaultAddonMode);

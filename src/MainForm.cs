@@ -1023,6 +1023,7 @@ namespace NvdaAddonSync
                                     {
                                         DeleteStaleItems = policy.DeleteStaleItems,
                                         ExcludePythonCache = policy.ExcludePythonCache,
+                                        ExcludeLogFiles = policy.ExcludeLogFiles,
                                         AddonMode = policy.AddonMode,
                                         Components = policy.Components,
                                         CancellationToken = cancellation.Token
@@ -1165,7 +1166,10 @@ namespace NvdaAddonSync
                 return;
             }
             logTextBox.AppendText(message + Environment.NewLine);
-            AppendLogFile(message);
+            if (settings.WriteLogFile)
+            {
+                AppendLogFile(message);
+            }
         }
 
         private void SaveLogAs()
@@ -1346,7 +1350,11 @@ namespace NvdaAddonSync
                 handler(message);
                 return;
             }
-            AppendLogFile(message);
+            var settings = AppSettings.Load();
+            if (settings.WriteLogFile)
+            {
+                AppendLogFile(message);
+            }
         }
 
         private static void RotateLogIfNeeded(string logPath)

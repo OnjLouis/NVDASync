@@ -95,6 +95,8 @@ function Assert-UniquePreferencesMnemonics {
 		W = '&Watch primary folder and sync changes after 1.5 seconds'
 		D = '&Delete stale items from secondary folders'
 		X = 'E&xclude Python cache files'
+		L = 'Exclude &log files'
+		F = 'Write rolling log &file'
 		B = 'Create &backup ZIP before program-file updates'
 		S = 'Run NVDA Sync at Windows &startup'
 		M = 'Start &minimized to the notification area'
@@ -163,7 +165,7 @@ function Assert-ChangelogClean([string]$version) {
 Assert-UniqueMainWindowMnemonics
 Assert-UniquePreferencesMnemonics
 Assert-ShortcutSource
-Assert-ChangelogClean "1.4.1"
+Assert-ChangelogClean "1.4.2"
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("nvda-addon-sync-smoke-" + [guid]::NewGuid())
 $primary = Join-Path $tempRoot "primary"
@@ -181,9 +183,11 @@ $addonInstallTarget = Join-Path $tempRoot "addonInstallTarget"
 $iniSource = Join-Path $tempRoot "iniSource"
 $iniDestination = Join-Path $tempRoot "iniDestination"
 $iniFreshDestination = Join-Path $tempRoot "iniFreshDestination"
-$gestureSource = Join-Path $tempRoot "gestureSource"
-$gestureDestination = Join-Path $tempRoot "gestureDestination"
-$gestureFreshDestination = Join-Path $tempRoot "gestureFreshDestination"
+	$gestureSource = Join-Path $tempRoot "gestureSource"
+	$gestureDestination = Join-Path $tempRoot "gestureDestination"
+	$gestureFreshDestination = Join-Path $tempRoot "gestureFreshDestination"
+	$programSource = Join-Path $tempRoot "programSource"
+	$programTarget = Join-Path $tempRoot "programTarget"
 $packExport = Join-Path $tempRoot "addon-pack.json"
 $usedDrives = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() }
 $missingDriveLetter = ([char[]](90..68 | ForEach-Object { [char]$_ }) | Where-Object { $usedDrives -notcontains ([string]$_) } | Select-Object -First 1)
@@ -218,12 +222,24 @@ try {
 	New-Item -ItemType Directory -Path $gestureSource -Force | Out-Null
 	New-Item -ItemType Directory -Path $gestureDestination -Force | Out-Null
 	New-Item -ItemType Directory -Path $gestureFreshDestination -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $programSource "systemConfig\addons\orpheus") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $programTarget "userConfig") -Force | Out-Null
 	Set-Content -LiteralPath (Join-Path $portableNvda "nvda.exe") -Value "" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $programSource "nvda.exe") -Value "" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $programSource "systemConfig\addons\orpheus\manifest.ini") -Value "name = orpheus" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $programTarget "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "nvda.exe") -Value "" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $cliPrimary "userConfig\gestures.ini") -Value "cli gestures" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "gestures.ini") -Value "gestures" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\manifest.ini") -Value "name = addonA" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\__pycache__\module.pyc") -Value "cache" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $primary "addons\addonA\debug.log") -Value "debug" -Encoding UTF8
+	New-Item -ItemType Directory -Path (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Network") -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Safe Browsing Network") -Force | Out-Null
+	Set-Content -LiteralPath (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data\data_1") -Value "cache data" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Network\Cookies") -Value "cookies" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $primary "googleTtsForNvda\chromeProfiles\session-1\Default\Safe Browsing Network\Safe Browsing Cookies") -Value "safe browsing cookies" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "profiles\Work.ini") -Value "[speech]`nrate = 40" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $primary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:notepad = Work" -Encoding UTF8
 	[IO.File]::WriteAllText((Join-Path $primary "speechDicts\default.dic"), "#first comment`r`nhash\#tag`treplace\#ment`t1`t2`r`nplain`tspoken`t0`t0`r`n", [Text.UTF8Encoding]::new($true))
@@ -232,6 +248,9 @@ try {
 	Set-Content -LiteralPath (Join-Path $primary "sonata\voices\kirsten.txt") -Value "voice data" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\oldAddon\manifest.ini") -Value "stale" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "addons\addonA\__pycache__\old.pyc") -Value "old cache" -Encoding UTF8
+	Set-Content -LiteralPath (Join-Path $secondary "addons\addonA\old.log") -Value "old log" -Encoding UTF8
+	New-Item -ItemType Directory -Path (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data") -Force | Out-Null
+	Set-Content -LiteralPath (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data\stale-cache") -Value "stale cache" -Encoding UTF8
 	Set-Content -LiteralPath (Join-Path $secondary "profileTriggers.ini") -Value "[triggersToProfiles]`napp:stale = Old" -Encoding UTF8
 	[IO.File]::WriteAllText((Join-Path $secondary "speechDicts\default.dic"), "existing`texisting replacement`t1`t0`r`n", [Text.UTF8Encoding]::new($true))
 	Set-Content -LiteralPath (Join-Path $secondary "oldAddonData\stale.txt") -Value "old data" -Encoding UTF8
@@ -263,7 +282,7 @@ class Harness
 	static int Main(string[] args)
 	{
 		var engine = new SyncEngine();
-		var result = engine.Sync(args[0], new[] { args[1] }, new SyncOptions { DeleteStaleItems = true, ExcludePythonCache = true, Components = new System.Collections.Generic.List<SyncComponent> { SyncComponent.Addons, SyncComponent.InputGestures, SyncComponent.OtherConfigFolders } });
+		var result = engine.Sync(args[0], new[] { args[1] }, new SyncOptions { DeleteStaleItems = true, ExcludePythonCache = true, ExcludeLogFiles = true, Components = new System.Collections.Generic.List<SyncComponent> { SyncComponent.Addons, SyncComponent.InputGestures, SyncComponent.OtherConfigFolders } });
 		Console.WriteLine("components=" + result.ComponentsSynced + " copied=" + result.FilesCopied + " ignored=" + result.ItemsIgnored + " deleted=" + result.ItemsDeleted + " errors=" + result.Errors);
 		if (result.ItemsIgnored == 0)
 		{
@@ -305,6 +324,13 @@ class Harness
 			return 7;
 		}
 		Console.WriteLine("component-folder-sync-ok");
+		var programResult = PortableNvdaUpdateService.UpdateTarget(args[16], args[17], false, System.Threading.CancellationToken.None);
+		if (programResult.Errors != 0 || !System.IO.File.Exists(System.IO.Path.Combine(args[17], "systemConfig", "addons", "orpheus", "manifest.ini")))
+		{
+			Console.WriteLine("program-system-config-addon-sync-failed errors=" + programResult.Errors);
+			return 37;
+		}
+		Console.WriteLine("program-system-config-addon-sync-ok");
 		var profileResult = engine.Sync(args[0], new[] { args[1] }, new SyncOptions { DeleteStaleItems = true, Components = new System.Collections.Generic.List<SyncComponent> { SyncComponent.ConfigProfiles } });
 		if (profileResult.Errors != 0 || !System.IO.File.Exists(System.IO.Path.Combine(args[1], "profiles", "Work.ini")) || !System.IO.File.Exists(System.IO.Path.Combine(args[1], "profileTriggers.ini")))
 		{
@@ -539,7 +565,7 @@ class Harness
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness build failed."
 	}
-	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget $iniSource $iniDestination $iniFreshDestination $gestureSource $gestureDestination $gestureFreshDestination
+	& $testExe $primary $secondary $nestedSecondary $portableNvda $missingSecondary $componentSecondaryAddons $componentPrimary $packExport $addonInstallSource $addonInstallTarget $iniSource $iniDestination $iniFreshDestination $gestureSource $gestureDestination $gestureFreshDestination $programSource $programTarget
 	if ($LASTEXITCODE -ne 0) {
 		throw "Harness failed."
 	}
@@ -556,6 +582,24 @@ class Harness
 	}
 	if (Test-Path -LiteralPath (Join-Path $secondary "addons\addonA\__pycache__\module.pyc")) {
 		throw "Python cache file should not be copied by default."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "addons\addonA\debug.log")) {
+		throw "Log files should not be copied by default."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "addons\addonA\old.log")) {
+		throw "Stale log files should be deleted when log exclusion and stale deletion are enabled."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data\data_1")) {
+		throw "Transient browser cache files should not be copied."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Network\Cookies")) {
+		throw "Transient browser cookie stores should not be copied."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Safe Browsing Network\Safe Browsing Cookies")) {
+		throw "Transient safe-browsing cookie stores should not be copied."
+	}
+	if (Test-Path -LiteralPath (Join-Path $secondary "googleTtsForNvda\chromeProfiles\session-1\Default\Cache\Cache_Data\stale-cache")) {
+		throw "Transient browser cache folders should be deleted when stale deletion is enabled."
 	}
 	if (Test-Path -LiteralPath (Join-Path $secondary "addons\oldAddon")) {
 		throw "Expected stale folder to be deleted."
@@ -601,6 +645,7 @@ class Harness
 		'<h2 id="addon-packs">Add-on Packs and Local Installs</h2>',
 		'<h2 id="command-line">Command Line</h2>',
 		'<h2 id="changelog">Changelog</h2>',
+		'<h3>1.4.2</h3>',
 		'<h3>1.4.1</h3>',
 		'<h3>1.3.5</h3>',
 		'<h3>1.3.4</h3>',
@@ -757,8 +802,8 @@ class Harness
 		$takeoverProcess.Kill()
 		throw "Takeover app did not close after --close."
 	}
-	if (-not (Test-Path -LiteralPath (Join-Path $root "portable\Logs\NVDASync.log"))) {
-		throw "GUI run did not create Logs\NVDASync.log."
+	if (Test-Path -LiteralPath (Join-Path $root "portable\Logs\NVDASync.log")) {
+		throw "GUI run created Logs\NVDASync.log even though rolling file logging defaults to off."
 	}
 	foreach ($runtimeFolder in @("Logs", "Settings")) {
 		$runtimePath = Join-Path $root ("portable\" + $runtimeFolder)

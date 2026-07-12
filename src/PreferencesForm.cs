@@ -16,6 +16,8 @@ namespace NvdaAddonSync
         private readonly CheckBox autoSyncCheckBox;
         private readonly CheckBox deleteStaleCheckBox;
         private readonly CheckBox excludePythonCacheCheckBox;
+        private readonly CheckBox excludeLogFilesCheckBox;
+        private readonly CheckBox writeLogFileCheckBox;
         private readonly CheckBox runAtStartupCheckBox;
         private readonly CheckBox startMinimizedCheckBox;
         private readonly ComboBox updateCheckFrequencyComboBox;
@@ -151,6 +153,18 @@ namespace NvdaAddonSync
             excludePythonCacheCheckBox.CheckedChanged += delegate { ApplyNow(); };
             filesLayout.Controls.Add(excludePythonCacheCheckBox);
 
+            excludeLogFilesCheckBox = new CheckBox();
+            excludeLogFilesCheckBox.Text = "Exclude &log files";
+            excludeLogFilesCheckBox.AutoSize = true;
+            excludeLogFilesCheckBox.CheckedChanged += delegate { ApplyNow(); };
+            filesLayout.Controls.Add(excludeLogFilesCheckBox);
+
+            writeLogFileCheckBox = new CheckBox();
+            writeLogFileCheckBox.Text = "Write rolling log &file";
+            writeLogFileCheckBox.AutoSize = true;
+            writeLogFileCheckBox.CheckedChanged += delegate { ApplyNow(); };
+            filesLayout.Controls.Add(writeLogFileCheckBox);
+
             var startupPage = new TabPage("Startup and updates");
             tabs.TabPages.Add(startupPage);
 
@@ -233,6 +247,8 @@ namespace NvdaAddonSync
             autoSyncCheckBox.Checked = settings.AutoSync;
             deleteStaleCheckBox.Checked = settings.DeleteStaleItems;
             excludePythonCacheCheckBox.Checked = settings.ExcludePythonCache;
+            excludeLogFilesCheckBox.Checked = settings.ExcludeLogFiles;
+            writeLogFileCheckBox.Checked = settings.WriteLogFile;
             runAtStartupCheckBox.Checked = settings.RunAtStartup;
             startMinimizedCheckBox.Checked = settings.StartMinimized;
             updateCheckFrequencyComboBox.SelectedItem = DisplayUpdateFrequency(settings.UpdateCheckFrequency);
@@ -292,6 +308,8 @@ namespace NvdaAddonSync
             settings.AutoSync = autoSyncCheckBox.Checked;
             settings.DeleteStaleItems = deleteStaleCheckBox.Checked;
             settings.ExcludePythonCache = excludePythonCacheCheckBox.Checked;
+            settings.ExcludeLogFiles = excludeLogFilesCheckBox.Checked;
+            settings.WriteLogFile = writeLogFileCheckBox.Checked;
             settings.RunAtStartup = runAtStartupCheckBox.Checked;
             settings.StartMinimized = startMinimizedCheckBox.Checked;
             settings.UpdateCheckFrequency = StoredUpdateFrequency(Convert.ToString(updateCheckFrequencyComboBox.SelectedItem));

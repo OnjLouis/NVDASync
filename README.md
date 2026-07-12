@@ -12,7 +12,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - The primary folder is shown read-only and can be chosen with Browse or found with Detect.
 - Supported components are add-ons, input gestures through `gestures.ini`, `nvda.ini`, speech dictionaries, configuration profiles with `profileTriggers.ini`, other root configuration files, other root configuration folders, and optional portable NVDA program-file updates.
 - Add-ons are selected by default; add-on sync can copy all add-ons, update only add-ons already present in a secondary, or be disabled per target. Potentially machine-specific configuration is opt-in.
-- Python cache files are excluded by default.
+- Python cache files and log files are excluded by default.
+- Transient Chrome/WebView-style cache and session files created by add-ons are skipped so locked browser-profile files do not create noisy sync failures.
 - Auto-sync watches the primary folder and pushes changes after a 1.5 second debounce.
 - Unavailable removable-drive secondary folders are skipped without interrupting the user, then retried every 60 seconds while auto-sync is enabled.
 - Manual sync is available from the main window or tray menu.
@@ -27,11 +28,11 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Existing speech dictionaries are backed up before dictionary-entry writes, and live NVDA profile edits warn before proceeding for dictionary files too.
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
-- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, auto-sync, Windows startup, start-minimized behavior, and update checks.
+- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, Windows startup, start-minimized behavior, and update checks.
 - Optional stale-item deletion makes selected secondary components match the primary exactly. Existing-add-ons-only mode updates matching add-ons without adding new ones or removing target-only add-ons.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
 - Command-line switches support closing, showing, syncing the running app, one-shot syncs, component selection, and cache handling.
-- A rolling log is written to `Logs\NVDASync.log`; Options > Save log saves the visible log to a chosen file.
+- The main window shows a visible log for the current run. Rolling file logging to `Logs\NVDASync.log` is optional and off by default; Options > Save log saves the visible log to a chosen file.
 - GitHub release update checks and self-updates use `https://github.com/OnjLouis/NVDASync`.
 - Automatic update checks default to startup for new users and can be set to never, startup, hourly, or daily, with optional silent install when a release ZIP is available.
 
@@ -64,6 +65,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - `--no-delete-stale`
 - `--exclude-python-cache`
 - `--include-python-cache`
+- `--exclude-log-files`
+- `--include-log-files`
 - `--save`
 - `--apply-update`
 - `--version`
