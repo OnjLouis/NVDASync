@@ -16,6 +16,7 @@ namespace NvdaAddonSync
         private readonly string backupNameExample;
         private readonly ComboBox sourceComboBox;
         private readonly CheckedListBox sectionsListBox;
+        private readonly ListBox selectedSectionsListBox;
         private readonly TextBox previewTextBox;
         private readonly ComboBox destinationComboBox;
         private readonly TextBox logTextBox;
@@ -23,6 +24,7 @@ namespace NvdaAddonSync
         private string currentIniPath;
         private IniParseResult currentParseResult;
         private bool loadingSourceLocations;
+        private bool selectedSectionsRefreshPending;
 
         public IniSectionManagerForm(AppSettings settings, string initialFolder, string targetFileName, string title)
         {
@@ -31,8 +33,8 @@ namespace NvdaAddonSync
             backupNameExample = Path.GetFileNameWithoutExtension(this.targetFileName) + "YYYYMMDD-HHMMSS" + Path.GetExtension(this.targetFileName);
             Text = string.IsNullOrWhiteSpace(title) ? this.targetFileName + " Section Cleanup" : title;
             StartPosition = FormStartPosition.CenterParent;
-            Width = 760;
-            Height = 560;
+            Width = 980;
+            Height = 600;
             MinimizeBox = false;
             MaximizeBox = false;
             ShowInTaskbar = false;
@@ -54,7 +56,7 @@ namespace NvdaAddonSync
 
             var folderLabel = new Label();
             folderLabel.AutoSize = true;
-            folderLabel.Text = this.targetFileName + " &location";
+            folderLabel.Text = this.targetFileName + " loc&ation";
             root.Controls.Add(folderLabel, 0, 0);
 
             var folderPanel = new TableLayoutPanel();
@@ -81,32 +83,73 @@ namespace NvdaAddonSync
 
             var sectionsPanel = new TableLayoutPanel();
             sectionsPanel.Dock = DockStyle.Fill;
-            sectionsPanel.ColumnCount = 2;
-            sectionsPanel.RowCount = 1;
-            sectionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
-            sectionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+            sectionsPanel.ColumnCount = 3;
+            sectionsPanel.RowCount = 2;
+            sectionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            sectionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+            sectionsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            sectionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            sectionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(sectionsPanel, 0, 2);
+
+            var foundSectionsLabel = new Label();
+            foundSectionsLabel.AutoSize = true;
+            foundSectionsLabel.Text = "&Found sections";
+            foundSectionsLabel.TabIndex = 0;
+            sectionsPanel.Controls.Add(foundSectionsLabel, 0, 0);
+
+            var selectedSectionsLabel = new Label();
+            selectedSectionsLabel.AutoSize = true;
+            selectedSectionsLabel.Text = "Selec&ted sections";
+            selectedSectionsLabel.TabIndex = 2;
+            sectionsPanel.Controls.Add(selectedSectionsLabel, 1, 0);
+
+            var previewLabel = new Label();
+            previewLabel.AutoSize = true;
+            previewLabel.Text = "&Preview";
+            previewLabel.TabIndex = 4;
+            sectionsPanel.Controls.Add(previewLabel, 2, 0);
 
             sectionsListBox = new CheckedListBox();
             sectionsListBox.Dock = DockStyle.Fill;
             sectionsListBox.CheckOnClick = true;
+            sectionsListBox.TabIndex = 1;
             sectionsListBox.AccessibleName = "Sections found in " + this.targetFileName;
             sectionsListBox.SelectedIndexChanged += delegate { UpdatePreview(); };
-            sectionsPanel.Controls.Add(sectionsListBox, 0, 0);
+            sectionsListBox.ItemCheck += delegate { ScheduleSelectedSectionsRefresh(); };
+            sectionsPanel.Controls.Add(sectionsListBox, 0, 1);
+
+            selectedSectionsListBox = new ListBox();
+            selectedSectionsListBox.Dock = DockStyle.Fill;
+            selectedSectionsListBox.TabIndex = 3;
+            selectedSectionsListBox.AccessibleName = "Selected sections";
+            selectedSectionsListBox.SelectedIndexChanged += delegate { SelectedSectionChanged(); };
+            sectionsPanel.Controls.Add(selectedSectionsListBox, 1, 1);
 
             previewTextBox = new TextBox();
             previewTextBox.Dock = DockStyle.Fill;
+            previewTextBox.TabIndex = 5;
             previewTextBox.Multiline = true;
             previewTextBox.ReadOnly = true;
             previewTextBox.ScrollBars = ScrollBars.Both;
             previewTextBox.WordWrap = false;
             previewTextBox.AccessibleName = "Selected " + this.targetFileName + " section preview";
-            sectionsPanel.Controls.Add(previewTextBox, 1, 0);
+            sectionsPanel.Controls.Add(previewTextBox, 2, 1);
 
             var actionsPanel = new FlowLayoutPanel();
             actionsPanel.AutoSize = true;
             actionsPanel.Dock = DockStyle.Top;
             root.Controls.Add(actionsPanel, 0, 3);
+
+            if (string.Equals(this.targetFileName, "nvda.ini", StringComparison.OrdinalIgnoreCase))
+            {
+                var selectAddonSectionsButton = new Button();
+                selectAddonSectionsButton.Text = "&Select orphaned add-on sections";
+                selectAddonSectionsButton.AutoSize = true;
+                selectAddonSectionsButton.AccessibleDescription = "Checks non-NVDA sections that cannot be tied to an add-on currently present in the selected NVDA folder.";
+                selectAddonSectionsButton.Click += delegate { SelectOrphanedAddonSections(); };
+                actionsPanel.Controls.Add(selectAddonSectionsButton);
+            }
 
             var deleteButton = new Button();
             deleteButton.Text = "&Delete selected";
@@ -318,6 +361,7 @@ namespace NvdaAddonSync
                 currentIniPath = string.Empty;
                 sourceComboBox.AccessibleDescription = currentFolder;
                 sectionsListBox.Items.Clear();
+                selectedSectionsListBox.Items.Clear();
                 AddLog("Could not open NVDA data folder: " + ex.Message);
             }
         }
@@ -330,6 +374,7 @@ namespace NvdaAddonSync
         private void LoadSections(bool selectFirstSection)
         {
             sectionsListBox.Items.Clear();
+            selectedSectionsListBox.Items.Clear();
             previewTextBox.Clear();
             currentParseResult = null;
             logTextBox.Clear();
@@ -345,6 +390,7 @@ namespace NvdaAddonSync
                 {
                     sectionsListBox.Items.Add(section.Name, false);
                 }
+                RefreshSelectedSections();
                 AddLog("Loaded " + sectionsListBox.Items.Count + " section(s) from " + currentIniPath);
                 if (selectFirstSection && sectionsListBox.Items.Count > 0)
                 {
@@ -360,12 +406,16 @@ namespace NvdaAddonSync
 
         private void UpdatePreview()
         {
-            if (currentParseResult == null || sectionsListBox.SelectedItem == null)
+            UpdatePreview(Convert.ToString(sectionsListBox.SelectedItem));
+        }
+
+        private void UpdatePreview(string selectedName)
+        {
+            if (currentParseResult == null || string.IsNullOrWhiteSpace(selectedName))
             {
                 previewTextBox.Clear();
                 return;
             }
-            var selectedName = Convert.ToString(sectionsListBox.SelectedItem);
             foreach (var section in currentParseResult.Sections)
             {
                 if (string.Equals(section.Name, selectedName, StringComparison.Ordinal))
@@ -379,6 +429,112 @@ namespace NvdaAddonSync
             previewTextBox.Clear();
         }
 
+        private void ScheduleSelectedSectionsRefresh()
+        {
+            if (selectedSectionsRefreshPending || IsDisposed || !IsHandleCreated)
+            {
+                return;
+            }
+            selectedSectionsRefreshPending = true;
+            BeginInvoke(new Action(delegate
+            {
+                selectedSectionsRefreshPending = false;
+                if (!IsDisposed)
+                {
+                    RefreshSelectedSections();
+                }
+            }));
+        }
+
+        private void RefreshSelectedSections()
+        {
+            var selectedName = Convert.ToString(selectedSectionsListBox.SelectedItem);
+            selectedSectionsListBox.BeginUpdate();
+            try
+            {
+                selectedSectionsListBox.Items.Clear();
+                foreach (var item in sectionsListBox.CheckedItems)
+                {
+                    selectedSectionsListBox.Items.Add(Convert.ToString(item));
+                }
+                if (!string.IsNullOrWhiteSpace(selectedName))
+                {
+                    selectedSectionsListBox.SelectedItem = selectedName;
+                }
+            }
+            finally
+            {
+                selectedSectionsListBox.EndUpdate();
+            }
+        }
+
+        private void SelectedSectionChanged()
+        {
+            var selectedName = Convert.ToString(selectedSectionsListBox.SelectedItem);
+            if (string.IsNullOrWhiteSpace(selectedName))
+            {
+                return;
+            }
+            UpdatePreview(selectedName);
+        }
+
+        private void SelectOrphanedAddonSections()
+        {
+            if (currentParseResult == null || string.IsNullOrWhiteSpace(currentFolder))
+            {
+                AddLog("No nvda.ini sections are available to classify.");
+                return;
+            }
+
+            var sectionNames = new List<string>();
+            foreach (var section in currentParseResult.Sections)
+            {
+                sectionNames.Add(section.Name);
+            }
+            var classification = AddonIniSectionClassifier.Classify(currentFolder, sectionNames);
+            if (!classification.AddonScanComplete)
+            {
+                for (var index = 0; index < sectionsListBox.Items.Count; index++)
+                {
+                    sectionsListBox.SetItemChecked(index, false);
+                }
+                RefreshSelectedSections();
+                AddLog("Could not inspect every current add-on safely. No sections were selected; review them manually.");
+                FocusLog();
+                return;
+            }
+            var orphanCandidates = classification.OrphanCandidateSectionNames();
+            var firstSelectedIndex = -1;
+            for (var index = 0; index < sectionsListBox.Items.Count; index++)
+            {
+                var sectionName = Convert.ToString(sectionsListBox.Items[index]);
+                var shouldCheck = orphanCandidates.Contains(sectionName);
+                sectionsListBox.SetItemChecked(index, shouldCheck);
+                if (shouldCheck && firstSelectedIndex < 0)
+                {
+                    firstSelectedIndex = index;
+                }
+            }
+            RefreshSelectedSections();
+
+            var installedAddonCount = classification.Count(IniSectionOwner.Addon);
+            var coreCount = classification.Count(IniSectionOwner.NvdaCore);
+            var orphanCount = classification.Count(IniSectionOwner.Unknown);
+            AddLog("Selected " + orphanCount + " possible orphaned add-on section(s).");
+            AddLog("Left " + installedAddonCount + " current add-on section(s) and " + coreCount + " NVDA section(s) unchecked.");
+            AddLog("Review the checked sections before deleting, copying, or moving them.");
+
+            if (firstSelectedIndex >= 0)
+            {
+                sectionsListBox.SelectedIndex = firstSelectedIndex;
+                UpdatePreview();
+            }
+            if (sectionsListBox.CanFocus)
+            {
+                sectionsListBox.Focus();
+            }
+        }
+
         private void DeleteSelectedSections()
         {
             var names = CheckedSectionNames();
@@ -388,11 +544,18 @@ namespace NvdaAddonSync
                 FocusLog();
                 return;
             }
+            var message = new StringBuilder();
+            message.AppendLine("Delete " + names.Count + " section(s) from:");
+            message.AppendLine(currentIniPath);
+            message.AppendLine();
+            AppendSectionNames(message, "Selected sections:", names);
+            message.AppendLine();
+            message.AppendLine("NVDA Sync will create a backup beside " + targetFileName + " before changing it, named like " + backupNameExample + ".");
+            message.AppendLine();
+            message.Append("Continue?");
             var confirmation = MessageBox.Show(
                 this,
-                "Delete " + names.Count + " section(s) from:" + Environment.NewLine + currentIniPath + Environment.NewLine + Environment.NewLine +
-                "NVDA Sync will create a backup beside " + targetFileName + " before changing it, named like " + backupNameExample + "." + Environment.NewLine + Environment.NewLine +
-                "Continue?",
+                message.ToString(),
                 "Delete " + targetFileName + " sections",
                 MessageBoxButtons.OKCancel,
                 MessageBoxIcon.Warning);
@@ -466,6 +629,8 @@ namespace NvdaAddonSync
             message.AppendLine();
             message.AppendLine("To:");
             message.AppendLine(destinationIniPath);
+            message.AppendLine();
+            AppendSectionNames(message, "Selected sections:", names);
             if (move)
             {
                 message.AppendLine();
@@ -915,6 +1080,15 @@ namespace NvdaAddonSync
                 names.Add(Convert.ToString(item));
             }
             return names;
+        }
+
+        private static void AppendSectionNames(StringBuilder message, string heading, IEnumerable<string> names)
+        {
+            message.AppendLine(heading);
+            foreach (var name in names)
+            {
+                message.AppendLine("[" + name + "]");
+            }
         }
 
         private static string FormatSectionList(IEnumerable<string> names)

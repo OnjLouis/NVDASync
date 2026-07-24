@@ -19,9 +19,9 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Manual sync is available from the main window or tray menu.
 - Normal GUI launches are single-instance across NVDA Sync copies: same-folder launches show the running copy, and different-folder launches close the older copy before the new one starts.
 - Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, one grouped INI cleanup submenu for orphaned `nvda.ini` and `gestures.ini` sections, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
-- The `nvda.ini` cleanup tool lists top-level sections in a chosen NVDA data folder and can delete, copy, or move them into a configured secondary folder, keeping nested subsections with their parent.
+- The `nvda.ini` cleanup tool lists top-level sections in a chosen NVDA data folder and can delete, copy, or move them into a configured secondary folder, keeping nested subsections with their parent. Its orphan selector leaves NVDA core and current add-on sections unchecked, selecting only non-core sections that cannot be tied to an add-on currently present in that NVDA folder.
 - The `gestures.ini` cleanup tool uses the same workflow for input gesture sections, preserving raw gesture lines such as `None = kb:h` and comma-separated bindings.
-- Both section cleanup tools include primary, secondary, and custom location choices, plus a read-only preview for the selected section.
+- Both section cleanup tools include primary, secondary, and custom location choices, a dedicated list of sections checked for the pending operation, and a read-only preview for the selected section.
 - Existing INI files are backed up before cleanup writes, and live NVDA profile edits warn before proceeding because NVDA can overwrite external edits from memory.
 - Section cleanup logs requested section changes, NVDA close and reopen activity, backup creation, file sizes before and after edits, and line counts removed.
 - The speech dictionary entry manager can sync one dictionary file, import a received `.dic` file into a chosen NVDA folder and inferred dictionary location, or delete, copy, and move selected dictionary entries between NVDA folders while preserving NVDA's dictionary format.

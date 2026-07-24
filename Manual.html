@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.4.2.</p>
+	<p>Current version: 1.5.0.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -136,8 +136,10 @@
 	<h2 id="ini-section-cleanup">INI Section Cleanup</h2>
 	<p>The Folders menu includes <strong>Clean up orphaned INI sections</strong>, with tools for moving, copying, or deleting whole top-level sections from <code>nvda.ini</code> and <code>gestures.ini</code>. The <code>nvda.ini</code> tool is intended for cases where an add-on has been removed but its configuration section is still present. The <code>gestures.ini</code> tool is intended for gesture sections left behind by add-ons or profiles.</p>
 	<p>Choose the NVDA data folder to inspect. The <code>nvda.ini</code> tool lists top-level sections such as <code>[addonName]</code>; nested subsections such as <code>[[profile]]</code> remain attached to their parent section and are moved or deleted with it. The <code>gestures.ini</code> file uses flat top-level sections only, so each listed section is handled as a single block.</p>
+	<p>The <strong>Selected sections</strong> list contains only the sections currently checked for the next operation. Move through that shorter list to review the pending selection; its highlighted entry is shown in the preview without moving the selection in <strong>Found sections</strong>. Changing a checkbox in <strong>Found sections</strong> updates the selected list immediately.</p>
+	<p>In the <code>nvda.ini</code> tool, choose <strong>Select orphaned add-on sections</strong> to replace the current checks with possible leftovers from removed add-ons. NVDA Sync examines the add-ons currently present in the selected NVDA data folder, including their manifests, folder names, and source. Known NVDA sections and sections belonging to current add-ons remain unchecked. A checked section is a non-core section that could not be tied to a current add-on, so always review it before deleting, copying, or moving it. If NVDA Sync cannot inspect the current add-ons completely, it selects nothing instead of making an unsafe guess.</p>
 	<p>Gesture lines are preserved exactly as written. For example, <code>None = kb:h</code> means NVDA has explicitly unbound that gesture, and values such as <code>script_jump = kb:a, kb:b</code> keep their comma-separated bindings. NVDA Sync does not automatically delete related sections from the other INI file; some names may look related without being safe to remove together, so users choose what to clean in each file deliberately.</p>
-	<p>Deleting selected sections always asks for confirmation. Copying selected sections writes them into a configured secondary folder's matching INI file and leaves the source unchanged. Moving selected sections writes them into the destination and then deletes them from the source. Matching destination sections are replaced only after warning you. Content before the first top-level section is preserved and is not selectable.</p>
+	<p>Deleting selected sections always asks for confirmation and lists every section that will be removed. Copy and move confirmations list the selected sections too. Copying writes them into a configured secondary folder's matching INI file and leaves the source unchanged. Moving writes them into the destination and then deletes them from the source. Matching destination sections are replaced only after warning you. Content before the first top-level section is preserved and is not selectable.</p>
 	<p>Before NVDA Sync rewrites an existing INI file, it creates a backup beside it named from the original file, such as <code>nvda20260620-083000.ini</code> or <code>gestures20260620-083000.ini</code>. If the selected file belongs to a running NVDA copy, NVDA Sync warns that NVDA may overwrite the change from memory and offers to close NVDA, apply the edit, and relaunch NVDA afterward.</p>
 
 	<h2 id="dictionary-entries">Speech Dictionary Entries</h2>
@@ -290,6 +292,15 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.5.0</h3>
+	<ul>
+		<li>Added <strong>Select orphaned add-on sections</strong> to the <code>nvda.ini</code> cleanup tool. It leaves known NVDA and current add-on sections unchecked, selecting only non-core sections that cannot be tied to an add-on currently present in that NVDA folder.</li>
+		<li>Added a dedicated <strong>Selected sections</strong> list so every checked section can be reviewed quickly before an operation.</li>
+		<li>Delete, copy, and move confirmations now list every selected section before proceeding.</li>
+		<li>Automatic orphan selection now selects nothing if the current add-on files cannot be inspected completely.</li>
+		<li>Corrected conflicting keyboard access keys in the INI section manager.</li>
+	</ul>
 
 	<h3>1.4.2</h3>
 	<ul>
