@@ -632,7 +632,7 @@ namespace NvdaAddonSync
                     return;
                 }
                 availabilityTimer.Interval = settings.UnavailableSecondaryRetryMinutes * 60 * 1000;
-                unavailableSecondaryFolders.UnionWith(GetUnavailableSecondaryFolders());
+                RefreshUnavailableSecondaryFolders();
                 availabilityTimer.Start();
                 var primary = GetPrimaryFolder();
                 if (Directory.Exists(primary))
@@ -766,6 +766,15 @@ namespace NvdaAddonSync
                 }
             }
             return unavailable;
+        }
+
+        private void RefreshUnavailableSecondaryFolders()
+        {
+            unavailableSecondaryFolders.Clear();
+            if (settings.AutoSync)
+            {
+                unavailableSecondaryFolders.UnionWith(GetUnavailableSecondaryFolders());
+            }
         }
 
         private void BrowseForPrimary()
@@ -1110,6 +1119,7 @@ namespace NvdaAddonSync
                 }
                 cancellation.Dispose();
                 syncing = false;
+                RefreshUnavailableSecondaryFolders();
                 FocusLog();
             }
         }
