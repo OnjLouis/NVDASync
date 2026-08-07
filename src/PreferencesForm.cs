@@ -14,6 +14,7 @@ namespace NvdaAddonSync
         private readonly CheckBox syncProgramFilesCheckBox;
         private readonly CheckBox createProgramBackupsCheckBox;
         private readonly CheckBox autoSyncCheckBox;
+        private readonly NumericUpDown unavailableSecondaryRetryMinutesNumeric;
         private readonly CheckBox deleteStaleCheckBox;
         private readonly CheckBox excludePythonCacheCheckBox;
         private readonly CheckBox excludeLogFilesCheckBox;
@@ -125,11 +126,26 @@ namespace NvdaAddonSync
             autoSyncCheckBox.AutoSize = true;
             autoSyncCheckBox.CheckedChanged += delegate { ApplyNow(); };
             syncLayout.Controls.Add(autoSyncCheckBox, 0, 6);
-            var watchNote = new Label();
-            watchNote.AutoSize = true;
-            watchNote.MaximumSize = new Size(540, 0);
-            watchNote.Text = "Unavailable secondary folders are checked again every 60 seconds while watching is enabled.";
-            syncLayout.Controls.Add(watchNote, 0, 7);
+
+            var retryLayout = new FlowLayoutPanel();
+            retryLayout.AutoSize = true;
+            retryLayout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            retryLayout.WrapContents = false;
+            retryLayout.Margin = Padding.Empty;
+            var retryLabel = new Label();
+            retryLabel.AutoSize = true;
+            retryLabel.Text = "Unavailable folder &retry interval (minutes):";
+            retryLabel.Margin = new Padding(0, 5, 6, 0);
+            retryLayout.Controls.Add(retryLabel);
+            unavailableSecondaryRetryMinutesNumeric = new NumericUpDown();
+            unavailableSecondaryRetryMinutesNumeric.Minimum = AppSettings.MinimumUnavailableSecondaryRetryMinutes;
+            unavailableSecondaryRetryMinutesNumeric.Maximum = AppSettings.MaximumUnavailableSecondaryRetryMinutes;
+            unavailableSecondaryRetryMinutesNumeric.Width = 80;
+            unavailableSecondaryRetryMinutesNumeric.AccessibleName = "Unavailable folder retry interval in minutes";
+            unavailableSecondaryRetryMinutesNumeric.ValueChanged += delegate { ApplyNow(); };
+            retryLayout.Controls.Add(unavailableSecondaryRetryMinutesNumeric);
+            retryLabel.UseMnemonic = true;
+            syncLayout.Controls.Add(retryLayout, 0, 7);
 
             deleteStaleCheckBox = new CheckBox();
             deleteStaleCheckBox.Text = "&Delete stale items from secondary folders";
@@ -245,6 +261,8 @@ namespace NvdaAddonSync
             syncProgramFilesCheckBox.Checked = settings.SyncNvdaProgramFiles;
             createProgramBackupsCheckBox.Checked = settings.CreateProgramBackups;
             autoSyncCheckBox.Checked = settings.AutoSync;
+            unavailableSecondaryRetryMinutesNumeric.Value = settings.UnavailableSecondaryRetryMinutes;
+            unavailableSecondaryRetryMinutesNumeric.Enabled = settings.AutoSync;
             deleteStaleCheckBox.Checked = settings.DeleteStaleItems;
             excludePythonCacheCheckBox.Checked = settings.ExcludePythonCache;
             excludeLogFilesCheckBox.Checked = settings.ExcludeLogFiles;
@@ -306,6 +324,8 @@ namespace NvdaAddonSync
             settings.SyncNvdaProgramFiles = syncProgramFilesCheckBox.Checked;
             settings.CreateProgramBackups = createProgramBackupsCheckBox.Checked;
             settings.AutoSync = autoSyncCheckBox.Checked;
+            settings.UnavailableSecondaryRetryMinutes = Decimal.ToInt32(unavailableSecondaryRetryMinutesNumeric.Value);
+            unavailableSecondaryRetryMinutesNumeric.Enabled = settings.AutoSync;
             settings.DeleteStaleItems = deleteStaleCheckBox.Checked;
             settings.ExcludePythonCache = excludePythonCacheCheckBox.Checked;
             settings.ExcludeLogFiles = excludeLogFilesCheckBox.Checked;

@@ -29,6 +29,7 @@ namespace NvdaAddonSync
         private readonly EventWaitHandle closeEvent;
         private readonly EventWaitHandle syncEvent;
         private readonly List<Thread> commandThreads;
+        private readonly HashSet<string> unavailableSecondaryFolders;
         private CancellationTokenSource syncCancellation;
         private bool loaded;
         private bool syncing;
@@ -51,6 +52,7 @@ namespace NvdaAddonSync
             StartPosition = FormStartPosition.Manual;
             KeyPreview = true;
             commandThreads = new List<Thread>();
+            unavailableSecondaryFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             settings = AppSettings.Load();
             ApplyStartupRegistration(false);
@@ -66,7 +68,6 @@ namespace NvdaAddonSync
             syncDebounceTimer.Tick += OnSyncDebounceTimerTick;
 
             availabilityTimer = new System.Windows.Forms.Timer();
-            availabilityTimer.Interval = 60000;
             availabilityTimer.Tick += OnAvailabilityTimerTick;
 
             updateCheckTimer = new System.Windows.Forms.Timer();
@@ -622,13 +623,16 @@ namespace NvdaAddonSync
             try
             {
                 watcher.EnableRaisingEvents = false;
+                availabilityTimer.Stop();
+                unavailableSecondaryFolders.Clear();
                 if (!settings.AutoSync)
                 {
-                    availabilityTimer.Stop();
                     watchedPrimaryFolder = null;
                     SetStatus("Ready");
                     return;
                 }
+                availabilityTimer.Interval = settings.UnavailableSecondaryRetryMinutes * 60 * 1000;
+                unavailableSecondaryFolders.UnionWith(GetUnavailableSecondaryFolders());
                 availabilityTimer.Start();
                 var primary = GetPrimaryFolder();
                 if (Directory.Exists(primary))
@@ -670,9 +674,21 @@ namespace NvdaAddonSync
             {
                 return;
             }
-            if (HasUnavailableSecondary())
+            var currentlyUnavailable = GetUnavailableSecondaryFolders();
+            var reconnected = false;
+            foreach (var secondary in unavailableSecondaryFolders)
             {
-                SyncNow("Checking reconnected secondary folders");
+                if (!currentlyUnavailable.Contains(secondary))
+                {
+                    reconnected = true;
+                    break;
+                }
+            }
+            unavailableSecondaryFolders.Clear();
+            unavailableSecondaryFolders.UnionWith(currentlyUnavailable);
+            if (reconnected)
+            {
+                SyncNow("Reconnected secondary folder available");
             }
         }
 
@@ -725,8 +741,9 @@ namespace NvdaAddonSync
             }));
         }
 
-        private bool HasUnavailableSecondary()
+        private HashSet<string> GetUnavailableSecondaryFolders()
         {
+            var unavailable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var secondary in GetSecondaryFolders())
             {
                 if (string.IsNullOrWhiteSpace(secondary))
@@ -736,18 +753,19 @@ namespace NvdaAddonSync
                 var root = Path.GetPathRoot(secondary);
                 if (!string.IsNullOrWhiteSpace(root) && !Directory.Exists(root))
                 {
-                    return true;
+                    unavailable.Add(secondary);
+                    continue;
                 }
                 if (!Directory.Exists(secondary))
                 {
                     var parent = Path.GetDirectoryName(secondary);
                     if (!string.IsNullOrWhiteSpace(parent) && Directory.Exists(parent))
                     {
-                        return true;
+                        unavailable.Add(secondary);
                     }
                 }
             }
-            return false;
+            return unavailable;
         }
 
         private void BrowseForPrimary()

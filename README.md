@@ -15,7 +15,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Python cache files and log files are excluded by default.
 - Transient Chrome/WebView-style cache and session files created by add-ons are skipped so locked browser-profile files do not create noisy sync failures.
 - Auto-sync watches the primary folder and pushes changes after a 1.5 second debounce.
-- Unavailable removable-drive secondary folders are skipped without interrupting the user, then retried every 60 seconds while auto-sync is enabled.
+- Unavailable removable-drive secondary folders are skipped without interrupting the user. Their return is checked at a configurable interval from 1 to 1440 minutes, defaulting to 60 minutes, and a sync runs only after a folder becomes available again.
 - Manual sync is available from the main window or tray menu.
 - Normal GUI launches are single-instance across NVDA Sync copies: same-folder launches show the running copy, and different-folder launches close the older copy before the new one starts.
 - Folders, Add-ons, Options, and Help menus provide keyboard-first access to folder management, one grouped INI cleanup submenu for orphaned `nvda.ini` and `gestures.ini` sections, add-on pack export, local add-on install, Preferences, updates, project links, contact, donate, and About.
@@ -28,7 +28,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Existing speech dictionaries are backed up before dictionary-entry writes, and live NVDA profile edits warn before proceeding for dictionary files too.
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
-- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, Windows startup, start-minimized behavior, and update checks.
+- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, an unavailable-folder retry interval, Windows startup, start-minimized behavior, and update checks.
 - Optional stale-item deletion makes selected secondary components match the primary exactly. Existing-add-ons-only mode updates matching add-ons without adding new ones or removing target-only add-ons.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
 - Command-line switches support closing, showing, syncing the running app, one-shot syncs, component selection, and cache handling.

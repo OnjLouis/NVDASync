@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.5.0.</p>
+	<p>Current version: 1.5.1.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -68,7 +68,7 @@
 			<tr><th>Tab</th><th>Settings</th></tr>
 		</thead>
 		<tbody>
-			<tr><td>Sync</td><td>Choose which NVDA components are synced, choose the default add-on mode, choose whether portable NVDA program files are updated, choose whether program updates create ZIP backups, enable or disable primary-folder watching, read the watch timing, and choose whether stale items are deleted from secondary folders.</td></tr>
+			<tr><td>Sync</td><td>Choose which NVDA components are synced, choose the default add-on mode, choose whether portable NVDA program files are updated, choose whether program updates create ZIP backups, enable or disable primary-folder watching, set the unavailable-folder retry interval in minutes, and choose whether stale items are deleted from secondary folders.</td></tr>
 			<tr><td>Files</td><td>Choose whether Python cache files and log files are excluded, and whether NVDA Sync writes a rolling log file beside the app. Cache and log-file exclusion are on by default; rolling file logging is off by default.</td></tr>
 			<tr><td>Startup and updates</td><td>Choose whether NVDA Sync runs when Windows starts, whether it starts minimised to the notification area, how often it checks GitHub releases, and whether automatic checks may install updates silently when possible.</td></tr>
 		</tbody>
@@ -192,7 +192,7 @@
 	<p>NVDA Sync also skips transient browser-profile cache and session files created by add-ons that embed Chrome or WebView-style data. These files are often locked while NVDA is running and are normally rebuilt by the add-on, so they are treated like cache rather than reported as sync errors.</p>
 	<p><strong>Write rolling log file</strong> is off by default. The visible log in the main window still works during each run. Enable file logging only when you want a persistent <code>Logs\NVDASync.log</code> for troubleshooting, or use <strong>Options &gt; Save log</strong> to save the visible log manually.</p>
 	<p>Auto-sync uses file-system change events from the primary folder and waits 1.5 seconds after the last change before syncing. Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
-	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, unavailable secondary folders are checked again every 60 seconds and synced after they become available.</p>
+	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, NVDA Sync checks whether unavailable folders have returned at the interval set in Preferences. The interval accepts 1 to 1440 minutes and defaults to 60 minutes. A check does not run a full sync while a folder remains unavailable; syncing begins after the folder returns.</p>
 	<p>The notification area tooltip reports the current state, such as ready, watching, syncing, waiting for a drive, or finished with errors.</p>
 	<p>The app refuses to sync when the primary and secondary are the same folder, or when one folder contains the other.</p>
 
@@ -292,6 +292,12 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.5.1</h3>
+	<ul>
+		<li>Added a configurable interval for checking whether unavailable secondary folders have returned. It accepts 1 to 1440 minutes and defaults to 60 minutes.</li>
+		<li>Fixed automatic checks starting a full sync every time while a secondary folder remained unavailable. A sync now starts only after the folder returns.</li>
+	</ul>
 
 	<h3>1.5.0</h3>
 	<ul>

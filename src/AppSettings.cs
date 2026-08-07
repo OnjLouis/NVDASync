@@ -9,6 +9,10 @@ namespace NvdaAddonSync
     [DataContract]
     internal sealed class AppSettings
     {
+        public const int DefaultUnavailableSecondaryRetryMinutes = 60;
+        public const int MinimumUnavailableSecondaryRetryMinutes = 1;
+        public const int MaximumUnavailableSecondaryRetryMinutes = 1440;
+
         [DataMember]
         public string PrimaryFolder { get; set; }
 
@@ -20,6 +24,9 @@ namespace NvdaAddonSync
 
         [DataMember]
         public bool AutoSync { get; set; }
+
+        [DataMember]
+        public int UnavailableSecondaryRetryMinutes { get; set; }
 
         [DataMember]
         public bool DeleteStaleItems { get; set; }
@@ -99,6 +106,7 @@ namespace NvdaAddonSync
             SecondaryFolderProfiles = new List<SecondaryFolderProfile>();
             PrimaryFolder = GetDefaultPrimaryFolder();
             AutoSync = true;
+            UnavailableSecondaryRetryMinutes = DefaultUnavailableSecondaryRetryMinutes;
             DeleteStaleItems = true;
             StartMinimized = false;
             SyncAddons = true;
@@ -114,7 +122,7 @@ namespace NvdaAddonSync
             ExcludePythonCache = true;
             ExcludeLogFiles = true;
             WriteLogFile = false;
-            SettingsVersion = 4;
+            SettingsVersion = 5;
             WindowWidth = 820;
             WindowHeight = 560;
             UpdateCheckFrequency = "Startup";
@@ -231,7 +239,13 @@ namespace NvdaAddonSync
             {
                 WriteLogFile = false;
             }
-            SettingsVersion = 4;
+            if (loadedSettingsVersion < 5
+                || UnavailableSecondaryRetryMinutes < MinimumUnavailableSecondaryRetryMinutes
+                || UnavailableSecondaryRetryMinutes > MaximumUnavailableSecondaryRetryMinutes)
+            {
+                UnavailableSecondaryRetryMinutes = DefaultUnavailableSecondaryRetryMinutes;
+            }
+            SettingsVersion = 5;
             if (!SyncAddons
                 && !SyncInputGestures
                 && !SyncNvdaIni
