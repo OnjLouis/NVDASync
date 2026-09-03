@@ -14,7 +14,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Add-ons are selected by default; add-on sync can copy all add-ons, update only add-ons already present in a secondary, or be disabled per target. Potentially machine-specific configuration is opt-in.
 - Python cache files and log files are excluded by default.
 - Transient Chrome/WebView-style cache and session files created by add-ons are skipped so locked browser-profile files do not create noisy sync failures.
-- Auto-sync watches the primary folder and pushes changes after a 1.5 second debounce.
+- Auto-sync watches the primary folder and pushes changes after the source settles. Add-on installation and removal transactions are deferred until NVDA completes them on restart, so temporary transaction folders are never mirrored or held open.
 - Unavailable removable-drive secondary folders are skipped without interrupting the user. Their return is checked at a configurable interval from 1 to 1440 minutes, defaulting to 60 minutes, and a sync runs only after a folder becomes available again.
 - Manual sync is available from the main window or tray menu.
 - Normal GUI launches are single-instance across NVDA Sync copies: same-folder launches show the running copy, and different-folder launches close the older copy before the new one starts.
@@ -30,6 +30,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, an unavailable-folder retry interval, Windows startup, start-minimized behavior, and update checks.
 - Optional stale-item deletion makes selected secondary components match the primary exactly. Existing-add-ons-only mode updates matching add-ons without adding new ones or removing target-only add-ons.
+- NVDA's add-on transaction state and temporary `.pendingInstall` or `.delete` paths are installation-local and are never copied between NVDA folders.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
 - Command-line switches support closing, showing, syncing the running app, one-shot syncs, component selection, and cache handling.
 - The main window shows a visible log for the current run. Rolling file logging to `Logs\NVDASync.log` is optional and off by default; Options > Save log saves the visible log to a chosen file.

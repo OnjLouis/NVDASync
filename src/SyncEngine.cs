@@ -1,7 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
+using System.Web.Script.Serialization;
 
 namespace NvdaAddonSync
 {
@@ -101,12 +104,170 @@ namespace NvdaAddonSync
     internal sealed class SyncResult
     {
         public int ComponentsSynced { get; set; }
+        public int ComponentsDeferred { get; set; }
         public int FilesCopied { get; set; }
         public int FilesSkipped { get; set; }
         public int ItemsDeleted { get; set; }
         public int ItemsIgnored { get; set; }
         public int UnavailableTargets { get; set; }
         public int Errors { get; set; }
+    }
+
+    internal sealed class NvdaAddonTransactionStatus
+    {
+        public bool IsPending { get; private set; }
+        public string Reason { get; private set; }
+
+        private NvdaAddonTransactionStatus(bool isPending, string reason)
+        {
+            IsPending = isPending;
+            Reason = reason ?? string.Empty;
+        }
+
+        public static NvdaAddonTransactionStatus Clear()
+        {
+            return new NvdaAddonTransactionStatus(false, string.Empty);
+        }
+
+        public static NvdaAddonTransactionStatus Pending(string reason)
+        {
+            return new NvdaAddonTransactionStatus(true, reason);
+        }
+    }
+
+    internal static class NvdaAddonTransactionGuard
+    {
+        private const string PendingInstallSuffix = ".pendingInstall";
+        private const string DeleteSuffix = ".delete";
+        private const int MaximumStateFileBytes = 1024 * 1024;
+
+        public static NvdaAddonTransactionStatus Inspect(string configFolder)
+        {
+            if (string.IsNullOrWhiteSpace(configFolder))
+            {
+                return NvdaAddonTransactionStatus.Pending("the NVDA configuration folder is not available");
+            }
+
+            try
+            {
+                var addonsFolder = Path.Combine(configFolder, SyncComponent.Addons.RelativePath);
+                if (Directory.Exists(addonsFolder))
+                {
+                    foreach (var entry in Directory.EnumerateFileSystemEntries(addonsFolder, "*", SearchOption.TopDirectoryOnly))
+                    {
+                        if (IsTransientAddonPath(entry))
+                        {
+                            return NvdaAddonTransactionStatus.Pending("NVDA has a staged add-on folder awaiting startup completion");
+                        }
+                    }
+                }
+
+                var stateFile = Path.Combine(configFolder, "addonsState.json");
+                if (!File.Exists(stateFile))
+                {
+                    return NvdaAddonTransactionStatus.Clear();
+                }
+
+                var stateInfo = new FileInfo(stateFile);
+                if (stateInfo.Length > MaximumStateFileBytes)
+                {
+                    return NvdaAddonTransactionStatus.Pending("NVDA's add-on state file is unexpectedly large");
+                }
+
+                string json;
+                using (var stream = new FileStream(stateFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                {
+                    json = reader.ReadToEnd();
+                }
+
+                var values = new JavaScriptSerializer().DeserializeObject(json) as IDictionary<string, object>;
+                if (values == null)
+                {
+                    return NvdaAddonTransactionStatus.Pending("NVDA's add-on state file is changing or unreadable");
+                }
+                foreach (var entry in values)
+                {
+                    if (IsPendingInstallOrRemoveKey(entry.Key) && HasValues(entry.Value))
+                    {
+                        return NvdaAddonTransactionStatus.Pending("NVDA reports an add-on installation or removal awaiting restart");
+                    }
+                }
+                return NvdaAddonTransactionStatus.Clear();
+            }
+            catch (Exception ex)
+            {
+                return NvdaAddonTransactionStatus.Pending("NVDA's add-on transaction state could not be verified: " + ex.Message);
+            }
+        }
+
+        public static bool IsTransientAddonPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            foreach (var segment in path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                if (segment.EndsWith(PendingInstallSuffix, StringComparison.OrdinalIgnoreCase)
+                    || segment.EndsWith(DeleteSuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsPendingInstallOrRemoveKey(string key)
+        {
+            var normalized = new StringBuilder();
+            foreach (var character in key ?? string.Empty)
+            {
+                if (char.IsLetterOrDigit(character))
+                {
+                    normalized.Append(char.ToLowerInvariant(character));
+                }
+            }
+            var value = normalized.ToString();
+            return value.StartsWith("pending", StringComparison.Ordinal)
+                && (value.Contains("install") || value.Contains("remove"));
+        }
+
+        private static bool HasValues(object value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+            var text = value as string;
+            if (text != null)
+            {
+                return !string.IsNullOrWhiteSpace(text);
+            }
+            var collection = value as ICollection;
+            if (collection != null)
+            {
+                return collection.Count > 0;
+            }
+            var enumerable = value as IEnumerable;
+            if (enumerable != null)
+            {
+                var enumerator = enumerable.GetEnumerator();
+                try
+                {
+                    return enumerator.MoveNext();
+                }
+                finally
+                {
+                    var disposable = enumerator as IDisposable;
+                    if (disposable != null)
+                    {
+                        disposable.Dispose();
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     internal sealed class SyncEngine
@@ -116,7 +277,10 @@ namespace NvdaAddonSync
             "gestures.ini",
             "inputGestures.ini",
             "nvda.ini",
-            "profileTriggers.ini"
+            "profileTriggers.ini",
+            "addonsState.json",
+            "addonsState.pickle",
+            "addonsState.pickle.bak"
         };
 
         private static readonly HashSet<string> ReservedRootConfigDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -190,6 +354,23 @@ namespace NvdaAddonSync
 
         private void SyncComponentToTarget(string primaryFolder, string targetFolder, SyncComponent component, SyncResult result, SyncOptions options)
         {
+            if (component == SyncComponent.Addons)
+            {
+                var primaryState = NvdaAddonTransactionGuard.Inspect(primaryFolder);
+                if (primaryState.IsPending)
+                {
+                    result.ComponentsDeferred++;
+                    Log("Deferred Add-ons: " + primaryState.Reason + ".");
+                    return;
+                }
+                var targetState = NvdaAddonTransactionGuard.Inspect(targetFolder);
+                if (targetState.IsPending)
+                {
+                    result.ComponentsDeferred++;
+                    Log("Deferred Add-ons for " + targetFolder + ": " + targetState.Reason + ".");
+                    return;
+                }
+            }
             if (component.Kind == SyncComponentKind.OtherConfigFiles)
             {
                 SyncOtherConfigFiles(primaryFolder, targetFolder, result, options);
@@ -227,10 +408,11 @@ namespace NvdaAddonSync
             }
             Directory.CreateDirectory(target);
             Log("Syncing " + component.Name + ".");
-            CopyChangedFiles(source, target, result, options);
+            var protectAddonTransactions = component == SyncComponent.Addons;
+            CopyChangedFiles(source, target, result, options, protectAddonTransactions);
             if (options.DeleteStaleItems)
             {
-                DeleteStaleEntries(source, target, result, options);
+                DeleteStaleEntries(source, target, result, options, protectAddonTransactions);
             }
             if (component == SyncComponent.ConfigProfiles)
             {
@@ -283,10 +465,10 @@ namespace NvdaAddonSync
                     Log("Left target-only add-on unchanged: " + addonName);
                     continue;
                 }
-                CopyChangedFiles(sourceAddon, targetAddon, result, options);
+                CopyChangedFiles(sourceAddon, targetAddon, result, options, false);
                 if (options.DeleteStaleItems)
                 {
-                    DeleteStaleEntries(sourceAddon, targetAddon, result, options);
+                    DeleteStaleEntries(sourceAddon, targetAddon, result, options, false);
                 }
             }
             result.ComponentsSynced++;
@@ -340,10 +522,10 @@ namespace NvdaAddonSync
                 }
                 var targetDirectory = Path.Combine(targetFolder, name);
                 Directory.CreateDirectory(targetDirectory);
-                CopyChangedFiles(sourceDirectory, targetDirectory, result, options);
+                CopyChangedFiles(sourceDirectory, targetDirectory, result, options, false);
                 if (options.DeleteStaleItems)
                 {
-                    DeleteStaleEntries(sourceDirectory, targetDirectory, result, options);
+                    DeleteStaleEntries(sourceDirectory, targetDirectory, result, options, false);
                 }
             }
             if (options.DeleteStaleItems)
@@ -543,11 +725,16 @@ namespace NvdaAddonSync
             return possibleChild.StartsWith(parent, StringComparison.OrdinalIgnoreCase);
         }
 
-        private void CopyChangedFiles(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options)
+        private void CopyChangedFiles(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options, bool protectAddonTransactions)
         {
             foreach (var sourceFile in Directory.EnumerateFiles(primaryFolder, "*", SearchOption.AllDirectories))
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
+                if (protectAddonTransactions && NvdaAddonTransactionGuard.IsTransientAddonPath(sourceFile))
+                {
+                    result.ItemsIgnored++;
+                    continue;
+                }
                 if (ShouldIgnore(sourceFile, options))
                 {
                     result.ItemsIgnored++;
@@ -586,11 +773,16 @@ namespace NvdaAddonSync
             }
         }
 
-        private void DeleteStaleEntries(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options)
+        private void DeleteStaleEntries(string primaryFolder, string targetFolder, SyncResult result, SyncOptions options, bool protectAddonTransactions)
         {
             foreach (var targetFile in Directory.EnumerateFiles(targetFolder, "*", SearchOption.AllDirectories))
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
+                if (protectAddonTransactions && NvdaAddonTransactionGuard.IsTransientAddonPath(targetFile))
+                {
+                    result.ItemsIgnored++;
+                    continue;
+                }
                 if (ShouldIgnore(targetFile, options))
                 {
                     DeleteFile(targetFolder, targetFile, result);
@@ -610,6 +802,11 @@ namespace NvdaAddonSync
             foreach (var targetDirectory in directories)
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
+                if (protectAddonTransactions && NvdaAddonTransactionGuard.IsTransientAddonPath(targetDirectory))
+                {
+                    result.ItemsIgnored++;
+                    continue;
+                }
                 if (ShouldIgnoreDirectory(targetDirectory, options))
                 {
                     DeleteDirectory(targetFolder, targetDirectory, result, true);
@@ -821,11 +1018,6 @@ namespace NvdaAddonSync
             if (sourceInfo.Length != targetInfo.Length)
             {
                 return true;
-            }
-            var difference = sourceInfo.LastWriteTimeUtc - targetInfo.LastWriteTimeUtc;
-            if (Math.Abs(difference.TotalSeconds) <= 2)
-            {
-                return false;
             }
             if (!FilesHaveSameContent(sourceFile, targetFile))
             {

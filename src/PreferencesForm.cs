@@ -122,7 +122,7 @@ namespace NvdaAddonSync
             syncLayout.Controls.Add(createProgramBackupsCheckBox, 0, 5);
 
             autoSyncCheckBox = new CheckBox();
-            autoSyncCheckBox.Text = "&Watch primary folder and sync changes after 1.5 seconds";
+            autoSyncCheckBox.Text = "&Watch primary folder and sync after changes settle";
             autoSyncCheckBox.AutoSize = true;
             autoSyncCheckBox.CheckedChanged += delegate { ApplyNow(); };
             syncLayout.Controls.Add(autoSyncCheckBox, 0, 6);

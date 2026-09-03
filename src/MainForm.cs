@@ -12,6 +12,8 @@ namespace NvdaAddonSync
     internal sealed class MainForm : Form
     {
         private const int MaxSecondaryFolders = 5;
+        private const int PrimaryChangeSettleMilliseconds = 1500;
+        private const int PendingAddonRetryMilliseconds = 3000;
 
         private readonly AppSettings settings;
         private readonly SyncEngine syncEngine;
@@ -33,6 +35,8 @@ namespace NvdaAddonSync
         private CancellationTokenSource syncCancellation;
         private bool loaded;
         private bool syncing;
+        private bool automaticSyncQueued;
+        private bool waitingForAddonTransaction;
         private bool lastStartupRegistrationSetting;
         private string currentStatus;
         private string watchedPrimaryFolder;
@@ -64,7 +68,7 @@ namespace NvdaAddonSync
             MainWindowLogMessage += AddLog;
 
             syncDebounceTimer = new System.Windows.Forms.Timer();
-            syncDebounceTimer.Interval = 1500;
+            syncDebounceTimer.Interval = PrimaryChangeSettleMilliseconds;
             syncDebounceTimer.Tick += OnSyncDebounceTimerTick;
 
             availabilityTimer = new System.Windows.Forms.Timer();
@@ -627,6 +631,9 @@ namespace NvdaAddonSync
                 unavailableSecondaryFolders.Clear();
                 if (!settings.AutoSync)
                 {
+                    syncDebounceTimer.Stop();
+                    automaticSyncQueued = false;
+                    waitingForAddonTransaction = false;
                     watchedPrimaryFolder = null;
                     SetStatus("Ready");
                     return;
@@ -638,6 +645,12 @@ namespace NvdaAddonSync
                 if (Directory.Exists(primary))
                 {
                     var changedWatchPath = !string.Equals(watchedPrimaryFolder, primary, StringComparison.OrdinalIgnoreCase);
+                    if (changedWatchPath)
+                    {
+                        syncDebounceTimer.Stop();
+                        automaticSyncQueued = false;
+                        waitingForAddonTransaction = false;
+                    }
                     watcher.Path = primary;
                     watcher.EnableRaisingEvents = true;
                     watchedPrimaryFolder = primary;
@@ -657,15 +670,86 @@ namespace NvdaAddonSync
         {
             BeginInvoke(new Action(delegate
             {
-                syncDebounceTimer.Stop();
-                syncDebounceTimer.Start();
+                automaticSyncQueued = true;
+                ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
             }));
         }
 
         private void OnSyncDebounceTimerTick(object sender, EventArgs e)
         {
             syncDebounceTimer.Stop();
-            SyncNow("Primary changed");
+            if (!settings.AutoSync)
+            {
+                automaticSyncQueued = false;
+                return;
+            }
+            if (syncing)
+            {
+                automaticSyncQueued = true;
+                return;
+            }
+
+            if (HasConfiguredAddonSync())
+            {
+                try
+                {
+                    var primary = SyncEngine.ResolveNvdaConfigDirectory(GetPrimaryFolder(), "Primary folder", true);
+                    var transaction = NvdaAddonTransactionGuard.Inspect(primary);
+                    if (transaction.IsPending)
+                    {
+                        automaticSyncQueued = true;
+                        if (!waitingForAddonTransaction)
+                        {
+                            AddLog("Automatic sync postponed: " + transaction.Reason + ". Restart NVDA to finish the add-on update.");
+                        }
+                        waitingForAddonTransaction = true;
+                        SetStatus("Waiting for NVDA");
+                        ScheduleAutomaticSync(PendingAddonRetryMilliseconds);
+                        return;
+                    }
+                    if (waitingForAddonTransaction)
+                    {
+                        waitingForAddonTransaction = false;
+                        AddLog("NVDA finished its pending add-on work. Waiting for the primary folder to settle.");
+                        SetStatus("Watching");
+                        ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
+                        return;
+                    }
+                }
+                catch
+                {
+                    // SyncNow reports invalid primary-folder errors through the normal path.
+                }
+            }
+
+            automaticSyncQueued = false;
+            SyncNow("Primary changed", true);
+        }
+
+        private void ScheduleAutomaticSync(int intervalMilliseconds)
+        {
+            if (!settings.AutoSync)
+            {
+                return;
+            }
+            syncDebounceTimer.Stop();
+            syncDebounceTimer.Interval = intervalMilliseconds;
+            syncDebounceTimer.Start();
+        }
+
+        private bool HasConfiguredAddonSync()
+        {
+            foreach (var profile in GetSecondaryProfiles())
+            {
+                var policy = profile.Resolve(settings);
+                if (policy.Components != null
+                    && policy.Components.Contains(SyncComponent.Addons)
+                    && AddonSyncMode.Normalize(policy.AddonMode) != AddonSyncMode.None)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void OnAvailabilityTimerTick(object sender, EventArgs e)
@@ -989,7 +1073,7 @@ namespace NvdaAddonSync
             logTextBox.SelectionLength = 0;
         }
 
-        private async void SyncNow(string reason)
+        private async void SyncNow(string reason, bool automaticRequest = false)
         {
             if (syncing)
             {
@@ -1024,6 +1108,26 @@ namespace NvdaAddonSync
                 cancelButton.Enabled = false;
                 SetStatus("Ready");
                 return;
+            }
+            if (PoliciesSyncAddons(policies))
+            {
+                var transaction = NvdaAddonTransactionGuard.Inspect(primary);
+                if (transaction.IsPending)
+                {
+                    AddLog((automaticRequest ? "Automatic sync postponed: " : "Sync postponed: ") + transaction.Reason + ". Restart NVDA to finish the add-on update.");
+                    SetStatus("Waiting for NVDA");
+                    syncing = false;
+                    syncButton.Enabled = true;
+                    cancelButton.Enabled = false;
+                    FocusLog();
+                    if (settings.AutoSync)
+                    {
+                        automaticSyncQueued = true;
+                        waitingForAddonTransaction = true;
+                        ScheduleAutomaticSync(PendingAddonRetryMilliseconds);
+                    }
+                    return;
+                }
             }
             settings.PrimaryFolder = primary;
             settings.SecondaryFolderProfiles = GetSecondaryProfiles();
@@ -1076,8 +1180,9 @@ namespace NvdaAddonSync
                     TaskScheduler.Default
                 );
                 AddLog(string.Format(
-                    "Finished. Components {0}, copied {1}, skipped {2}, ignored {3}, deleted {4}, unavailable {5}, errors {6}. Time taken {7}.",
+                    "Finished. Components {0}, deferred {1}, copied {2}, skipped {3}, ignored {4}, deleted {5}, unavailable {6}, errors {7}. Time taken {8}.",
                     result.ComponentsSynced,
+                    result.ComponentsDeferred,
                     result.FilesCopied,
                     result.FilesSkipped,
                     result.ItemsIgnored,
@@ -1089,6 +1194,10 @@ namespace NvdaAddonSync
                 if (result.Errors != 0)
                 {
                     SetStatus("Finished with errors");
+                }
+                else if (result.ComponentsDeferred != 0)
+                {
+                    SetStatus("Waiting for NVDA");
                 }
                 else if (result.UnavailableTargets != 0)
                 {
@@ -1121,12 +1230,31 @@ namespace NvdaAddonSync
                 syncing = false;
                 RefreshUnavailableSecondaryFolders();
                 FocusLog();
+                if (automaticSyncQueued && settings.AutoSync)
+                {
+                    ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
+                }
             }
+        }
+
+        private static bool PoliciesSyncAddons(IEnumerable<SecondaryFolderPolicy> policies)
+        {
+            foreach (var policy in policies)
+            {
+                if (policy.Components != null
+                    && policy.Components.Contains(SyncComponent.Addons)
+                    && AddonSyncMode.Normalize(policy.AddonMode) != AddonSyncMode.None)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static void AddSyncResult(SyncResult total, SyncResult addition)
         {
             total.ComponentsSynced += addition.ComponentsSynced;
+            total.ComponentsDeferred += addition.ComponentsDeferred;
             total.FilesCopied += addition.FilesCopied;
             total.FilesSkipped += addition.FilesSkipped;
             total.ItemsDeleted += addition.ItemsDeleted;
