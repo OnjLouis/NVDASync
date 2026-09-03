@@ -13,21 +13,26 @@ namespace NvdaAddonSync
     {
         private static void ApplyUpdateFromCommandLine(string[] args)
         {
+            var quiet = args.Any(arg => string.Equals(arg, "--update-quiet", StringComparison.OrdinalIgnoreCase));
             try
             {
                 string zipUrl;
+                string signatureUrl;
+                string expectedVersion;
                 string targetDir;
                 string exePath;
                 string tempBase;
                 string pidText;
                 var noRestart = args.Any(arg => string.Equals(arg, "--update-no-restart", StringComparison.OrdinalIgnoreCase));
                 TryGetOptionValue(args, "--update-url", out zipUrl);
+                TryGetOptionValue(args, "--signature-url", out signatureUrl);
+                TryGetOptionValue(args, "--update-version", out expectedVersion);
                 TryGetOptionValue(args, "--update-target", out targetDir);
                 TryGetOptionValue(args, "--update-exe", out exePath);
                 TryGetOptionValue(args, "--update-temp", out tempBase);
                 TryGetOptionValue(args, "--update-wait-pid", out pidText);
 
-                if (string.IsNullOrWhiteSpace(zipUrl) || string.IsNullOrWhiteSpace(targetDir) || string.IsNullOrWhiteSpace(exePath))
+                if (string.IsNullOrWhiteSpace(zipUrl) || string.IsNullOrWhiteSpace(signatureUrl) || string.IsNullOrWhiteSpace(expectedVersion) || string.IsNullOrWhiteSpace(targetDir) || string.IsNullOrWhiteSpace(exePath))
                 {
                     throw new InvalidOperationException("The updater was not given enough information to install the update.");
                 }
@@ -40,31 +45,45 @@ namespace NvdaAddonSync
                     WaitForProcessExit(processId);
                 }
 
-                ApplyUpdate(zipUrl, targetDir, exePath, string.IsNullOrWhiteSpace(tempBase) ? Path.GetTempPath() : tempBase, noRestart);
+                ApplyUpdate(zipUrl, signatureUrl, expectedVersion, targetDir, exePath, string.IsNullOrWhiteSpace(tempBase) ? Path.GetTempPath() : tempBase, noRestart);
+                Environment.ExitCode = 0;
             }
             catch (Exception ex)
             {
                 WriteUpdateHistory(args, "ERROR: " + ex.Message);
                 WriteUpdaterLog(args, ex);
-                MessageBox.Show("NVDA Sync update failed:" + Environment.NewLine + Environment.NewLine + ex.Message, "NVDA Sync updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!quiet)
+                {
+                    MessageBox.Show("NVDA Sync update failed:" + Environment.NewLine + Environment.NewLine + ex.Message, "NVDA Sync updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                Environment.ExitCode = 1;
             }
         }
 
-        private static void ApplyUpdate(string zipUrl, string targetDir, string exePath, string tempBase, bool noRestart)
+        private static void ApplyUpdate(string zipUrl, string signatureUrl, string expectedVersion, string targetDir, string exePath, string tempBase, bool noRestart)
         {
             Directory.CreateDirectory(tempBase);
             var root = Path.Combine(tempBase, "NVDASyncUpdate_" + Guid.NewGuid().ToString("N"));
             var zip = Path.Combine(root, "update.zip");
+            var signature = zip + ".sig";
             var stage = Path.Combine(root, "stage");
+            var backupStage = Path.Combine(root, "backup");
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(stage);
+            Directory.CreateDirectory(backupStage);
 
             try
             {
                 WriteUpdateHistory(targetDir, "Downloading update ZIP.");
                 DownloadUpdateZip(zipUrl, zip);
+                DownloadUpdateZip(signatureUrl, signature);
+                WriteUpdateHistory(targetDir, "Verifying update signature.");
+                if (!UpdateService.VerifyPackageSignature(zip, signature))
+                {
+                    throw new InvalidOperationException("The update signature is missing or invalid. No files were changed.");
+                }
                 WriteUpdateHistory(targetDir, "Extracting update ZIP.");
-                ZipFile.ExtractToDirectory(zip, stage);
+                ExtractSafely(zip, stage);
 
                 var source = FindUpdateSourceFolder(stage);
                 if (string.IsNullOrWhiteSpace(source))
@@ -72,30 +91,49 @@ namespace NvdaAddonSync
                     throw new InvalidOperationException("The update ZIP does not contain NVDASync.exe.");
                 }
 
+                var stagedExe = Path.Combine(source, "NVDASync.exe");
+                System.Version expected;
+                System.Version actual;
+                var stagedVersion = FileVersionInfo.GetVersionInfo(stagedExe).FileVersion;
+                if (!System.Version.TryParse(expectedVersion, out expected) || !System.Version.TryParse(stagedVersion, out actual) || !VersionsMatch(actual, expected))
+                {
+                    throw new InvalidOperationException("The signed update version does not match the GitHub release version.");
+                }
+
+                var allowedFiles = new[] { "NVDASync.exe", "NvdaAddonSync.exe", "Manual.html", "LICENSE.txt", "Get latest NVDA Sync.url" };
+                var stagedFiles = Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly);
+                if (Directory.GetDirectories(source).Length > 0 || stagedFiles.Any(path => !allowedFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException("The signed update contains unexpected files or folders.");
+                }
+                if (!new[] { "NVDASync.exe", "Manual.html", "LICENSE.txt" }.All(name => File.Exists(Path.Combine(source, name))))
+                {
+                    throw new InvalidOperationException("The signed update is incomplete.");
+                }
+
                 WriteUpdateHistory(targetDir, "Applying files.");
                 Directory.CreateDirectory(targetDir);
-                var backupRoot = Path.Combine(Path.Combine(targetDir, "Backups\\Updates"), DateTime.Now.ToString("yyyyMMdd-HHmmss"));
-                foreach (var item in Directory.GetFileSystemEntries(source))
+                foreach (var item in stagedFiles)
                 {
                     var name = Path.GetFileName(item);
-                    if (IsPreservedRuntimeItem(name))
-                    {
-                        continue;
-                    }
                     var destination = Path.Combine(targetDir, name);
-                    if (Directory.Exists(item))
-                    {
-                        ReplaceDirectory(item, destination, backupRoot);
-                    }
-                    else
-                    {
-                        CopyFileWithRetry(item, destination);
-                    }
+                    if (File.Exists(destination)) File.Copy(destination, Path.Combine(backupStage, name), true);
+                }
+                SaveUpdateBackup(targetDir, backupStage);
+                var newFiles = stagedFiles.Where(item => !File.Exists(Path.Combine(targetDir, Path.GetFileName(item)))).Select(Path.GetFileName).ToList();
+                try
+                {
+                    foreach (var item in stagedFiles) CopyFileWithRetry(item, Path.Combine(targetDir, Path.GetFileName(item)));
+                }
+                catch
+                {
+                    foreach (var newFile in newFiles) TryDeleteFile(Path.Combine(targetDir, newFile));
+                    foreach (var backup in Directory.GetFiles(backupStage)) CopyFileWithRetry(backup, Path.Combine(targetDir, Path.GetFileName(backup)));
+                    throw;
                 }
                 TryDeleteFile(Path.Combine(targetDir, "README.md"));
                 TryDeleteFile(Path.Combine(targetDir, "NvdaAddonSync.exe"));
                 UpdateStartupRegistrationAfterUpdate(targetDir);
-                RemoveEmptyDirectory(backupRoot);
                 CleanupEmptyBackupFolders(targetDir);
             }
             finally
@@ -113,23 +151,6 @@ namespace NvdaAddonSync
             TryRestartUpdatedApp(PreferredExecutablePath(targetDir, exePath), targetDir);
         }
 
-        private static bool IsPreservedRuntimeItem(string name)
-        {
-            return string.Equals(name, "Settings", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "Logs", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "Backups", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static void ReplaceDirectory(string source, string destination, string backupRoot)
-        {
-            if (Directory.Exists(destination))
-            {
-                NewBackupZip(destination, backupRoot, "Previous-" + Path.GetFileName(destination));
-                DeleteDirectoryWithRetry(destination);
-            }
-            CopyDirectory(source, destination);
-        }
-
         private static void DownloadUpdateZip(string zipUrl, string destination)
         {
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
@@ -140,19 +161,59 @@ namespace NvdaAddonSync
             }
         }
 
+        private static void ExtractSafely(string zipPath, string destination)
+        {
+            var normalizedDestination = Path.GetFullPath(destination).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                var seenTargets = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var entry in archive.Entries)
+                {
+                    var target = Path.GetFullPath(Path.Combine(destination, entry.FullName));
+                    if (!target.StartsWith(normalizedDestination, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException("The update archive contains an unsafe path.");
+                    }
+                    if (!seenTargets.Add(target))
+                    {
+                        throw new InvalidOperationException("The update archive contains duplicate paths.");
+                    }
+                    if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.FullName.EndsWith("\\", StringComparison.Ordinal))
+                    {
+                        Directory.CreateDirectory(target);
+                        continue;
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(target));
+                    entry.ExtractToFile(target, true);
+                }
+            }
+        }
+
+        private static bool VersionsMatch(System.Version left, System.Version right)
+        {
+            return left.Major == right.Major &&
+                   left.Minor == right.Minor &&
+                   Math.Max(0, left.Build) == Math.Max(0, right.Build) &&
+                   Math.Max(0, left.Revision) == Math.Max(0, right.Revision);
+        }
+
+        private static void SaveUpdateBackup(string targetDir, string backupStage)
+        {
+            if (Directory.GetFiles(backupStage).Length == 0) return;
+            var backups = Path.Combine(targetDir, Path.Combine("Backups", "Updates"));
+            Directory.CreateDirectory(backups);
+            var archive = Path.Combine(backups, "NVDASync-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip");
+            ZipFile.CreateFromDirectory(backupStage, archive);
+            foreach (var old in Directory.GetFiles(backups, "NVDASync-*.zip").OrderByDescending(path => File.GetLastWriteTimeUtc(path)).Skip(2))
+            {
+                try { File.Delete(old); } catch { }
+            }
+        }
+
         private static string FindUpdateSourceFolder(string stage)
         {
             var direct = Path.Combine(stage, "NVDASync.exe");
-            if (File.Exists(direct))
-            {
-                return stage;
-            }
-            var candidates = Directory.GetFiles(stage, "NVDASync.exe", SearchOption.AllDirectories);
-            if (candidates.Length == 0)
-            {
-                candidates = Directory.GetFiles(stage, "NvdaAddonSync.exe", SearchOption.AllDirectories);
-            }
-            return candidates.Length == 0 ? string.Empty : Path.GetDirectoryName(candidates[0]);
+            return File.Exists(direct) ? stage : string.Empty;
         }
 
         private static string PreferredExecutablePath(string targetDir, string fallbackExePath)
@@ -205,21 +266,6 @@ namespace NvdaAddonSync
             }
         }
 
-        private static void CopyDirectory(string source, string destination)
-        {
-            Directory.CreateDirectory(destination);
-            foreach (var directory in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
-            {
-                Directory.CreateDirectory(Path.Combine(destination, RelativePath(source, directory)));
-            }
-            foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
-            {
-                var target = Path.Combine(destination, RelativePath(source, file));
-                Directory.CreateDirectory(Path.GetDirectoryName(target));
-                CopyFileWithRetry(file, target);
-            }
-        }
-
         private static void CopyFileWithRetry(string source, string destination)
         {
             Exception last = null;
@@ -238,48 +284,6 @@ namespace NvdaAddonSync
                 }
             }
             throw new IOException("Could not replace " + destination + " after waiting.", last);
-        }
-
-        private static void DeleteDirectoryWithRetry(string path)
-        {
-            Exception last = null;
-            for (var attempt = 0; attempt < 30; attempt++)
-            {
-                try
-                {
-                    if (Directory.Exists(path))
-                    {
-                        Directory.Delete(path, true);
-                    }
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    last = ex;
-                    Thread.Sleep(1000);
-                }
-            }
-            throw new IOException("Could not replace " + path + " after waiting.", last);
-        }
-
-        private static string RelativePath(string root, string path)
-        {
-            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            var fullPath = Path.GetFullPath(path);
-            return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase) ? fullPath.Substring(fullRoot.Length) : Path.GetFileName(path);
-        }
-
-        private static void NewBackupZip(string path, string backupRoot, string name)
-        {
-            if (!Directory.Exists(path)) return;
-            Directory.CreateDirectory(backupRoot);
-            var safeName = string.Join("_", (name ?? "Backup").Split(Path.GetInvalidFileNameChars()));
-            var zipPath = Path.Combine(backupRoot, safeName + ".zip");
-            if (File.Exists(zipPath))
-            {
-                zipPath = Path.Combine(backupRoot, safeName + "-" + Guid.NewGuid().ToString("N") + ".zip");
-            }
-            ZipFile.CreateFromDirectory(path, zipPath);
         }
 
         private static void RemoveEmptyDirectory(string folder)

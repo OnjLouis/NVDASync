@@ -34,7 +34,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
 - Command-line switches support closing, showing, syncing the running app, one-shot syncs, component selection, and cache handling.
 - The main window shows a visible log for the current run. Rolling file logging to `Logs\NVDASync.log` is optional and off by default; Options > Save log saves the visible log to a chosen file.
-- GitHub release update checks and self-updates use `https://github.com/OnjLouis/NVDASync`.
+- GitHub release update checks and self-updates use `https://github.com/OnjLouis/NVDASync`. Update packages are signed and rejected before extraction if the signature or advertised version is invalid.
 - Automatic update checks default to startup for new users and can be set to never, startup, hourly, or daily, with optional silent install when a release ZIP is available.
 
 ## Keyboard
@@ -81,4 +81,4 @@ Run:
 powershell -ExecutionPolicy Bypass -File .\Build.ps1
 ```
 
-The portable app is written to `portable`.
+The portable app and `NVDASync.zip` package are written beneath the selected output folder. Release builds pass a private RSA key to `-SigningKeyPath`; the private key is never stored in the repository or package.

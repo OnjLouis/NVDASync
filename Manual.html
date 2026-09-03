@@ -288,7 +288,7 @@
 
 	<h2 id="logs-and-updates">Logs and Updates</h2>
 	<p>NVDA Sync shows run details in the main-window log. Use <strong>Options &gt; Save log</strong> to save the visible output to a chosen text file for support. If <strong>Write rolling log file</strong> is enabled in Preferences, NVDA Sync also writes <code>Logs\NVDASync.log</code> beside the app.</p>
-	<p>Use <strong>Help &gt; Check for updates</strong> or Shift+F1 to check GitHub releases at <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>. If a newer release includes a ZIP package, NVDA Sync can download it, close, replace the files in the current folder while preserving <code>Settings</code>, <code>Logs</code>, and <code>Backups</code>, then restart.</p>
+	<p>Use <strong>Help &gt; Check for updates</strong> or Shift+F1 to check GitHub releases at <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>. If a newer release includes a signed ZIP package, NVDA Sync can download it, verify its signature and version, close, replace the files in the current folder while preserving <code>Settings</code>, <code>Logs</code>, and <code>Backups</code>, then restart. Invalid or incomplete packages are rejected before installed files are changed.</p>
 	<p>Use <strong>Preferences &gt; Startup and updates</strong> to choose whether NVDA Sync checks for updates never, at startup, hourly, or daily. New installations check at startup by default so users hear about fixes without opening Preferences first. If <strong>Install updates silently when possible</strong> is enabled, automatic checks can install a newer ZIP release without prompting. Manual update checks still show the normal update dialog.</p>
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
@@ -299,6 +299,7 @@
 		<li>Prevented automatic and manual add-on sync from starting while NVDA has an add-on installation or removal waiting to finish during restart.</li>
 		<li>Stopped temporary add-on transaction folders and NVDA's add-on state files from being copied between installations.</li>
 		<li>Queued source changes detected during a running sync for a fresh settled comparison afterward.</li>
+		<li>Secured self-updates with signed packages, strict archive validation, version checks, and rollback if replacement fails.</li>
 	</ul>
 
 	<h3>1.5.1</h3>

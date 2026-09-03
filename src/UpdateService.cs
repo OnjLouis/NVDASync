@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
@@ -16,6 +18,8 @@ namespace NvdaAddonSync
         private const string UserAgent = "NVDA Sync updater";
         private const string ContactUrl = "https://onj.me/contact";
         private const string DonateUrl = "https://onj.me/donate";
+        private const string PackageAssetName = "NVDASync.zip";
+        private const string PublicKeyXml = "<RSAKeyValue><Modulus>1cgrS/hqq/Tv17lL5WNKVYNXGR2+qribsuWehlHsxA8l0wEv508GQX6LwZQjjByTu1b3lu9GEtXrezXg76rLKt7/X4+sDRQnILH83IW8pRoaPURBqJsX/3wtHd1QEihgWmcgKcoaAk7phBzJCioMH/d2QKqghgydEKYShEITCPkNZ64ArzXhlw6aZ6FFu58uXf89u1m+B9jiBeCgBatH3OgXN7hRc3BCJm5HuLAAswAYUO0yv3hsZLDiqB8+9U8Dxv/Zzq1f5NJu+vpkYXQl5Y7RP3DETGijo/7zkFlTFSIZ8vFGyawhK4VP9TzMnpxooQPpPhOotbNHUvDeGBIz0l6MoTjhdrVXTt6YPFwr+JJidOjlvMyItZMdWtxQoWJAQFsDAEBrgx3R1jsYZGBWqNRIxrRD1xmYUSxMIyc49Jn0tpLuD2jV192O8m0+DAQNCZNij6acNu6zl6FNibVS8oHbK9HOmpwxTRwXU7KKQY7xSflvjIp8w6PLyfeBW9Cl</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
 
         public static void OpenProjectPage()
         {
@@ -86,9 +90,9 @@ namespace NvdaAddonSync
 
                 if (installSilently)
                 {
-                    var zipAsset = FindPortableZipAsset(release);
-                    if (zipAsset == null || string.IsNullOrWhiteSpace(zipAsset.BrowserDownloadUrl)) return;
-                    StartSelfUpdate(owner, zipAsset.BrowserDownloadUrl, exitApp, true);
+                    var package = FindSignedPackage(release);
+                    if (package == null || package.Signature == null) return;
+                    StartSelfUpdate(owner, package, remote.ToString(), exitApp, true);
                     return;
                 }
 
@@ -103,7 +107,7 @@ namespace NvdaAddonSync
         {
             var latest = release == null ? remote.ToString() : (release.TagName ?? remote.ToString());
             var releaseUrl = release == null || string.IsNullOrWhiteSpace(release.HtmlUrl) ? ProjectUrl + "/releases" : release.HtmlUrl;
-            var zipAsset = FindPortableZipAsset(release);
+            var package = FindSignedPackage(release);
             var releaseNotes = BuildUpdateReleaseNotes(releases, current, remote);
 
             using (var dialog = new Form())
@@ -130,14 +134,14 @@ namespace NvdaAddonSync
                 var releaseButton = new Button { Text = "Open &release page", AutoSize = true };
                 releaseButton.Click += delegate { OpenUrl(releaseUrl); };
 
-                if (zipAsset != null && !string.IsNullOrWhiteSpace(zipAsset.BrowserDownloadUrl))
+                if (package != null && package.Signature != null)
                 {
                     var installButton = new Button { Text = "&Download and install", AutoSize = true };
                     installButton.Click += delegate
                     {
                         dialog.DialogResult = DialogResult.OK;
                         dialog.Close();
-                        StartSelfUpdate(owner, zipAsset.BrowserDownloadUrl, exitApp, false);
+                        StartSelfUpdate(owner, package, remote.ToString(), exitApp, false);
                     };
                     buttons.Controls.Add(installButton);
                     dialog.AcceptButton = installButton;
@@ -145,6 +149,10 @@ namespace NvdaAddonSync
 
                 buttons.Controls.Add(releaseButton);
                 buttons.Controls.Add(laterButton);
+                if (package == null || package.Signature == null)
+                {
+                    buttons.Controls.Add(new Label { AutoSize = true, Text = "Automatic installation is unavailable because this release does not include both the ZIP and its signature." });
+                }
                 dialog.CancelButton = laterButton;
                 layout.Controls.Add(buttons, 0, 2);
                 dialog.Controls.Add(layout);
@@ -152,11 +160,11 @@ namespace NvdaAddonSync
             }
         }
 
-        private static void StartSelfUpdate(IWin32Window owner, string zipUrl, Action exitApp, bool silent)
+        private static void StartSelfUpdate(IWin32Window owner, SignedPackage package, string expectedVersion, Action exitApp, bool silent)
         {
             if (!silent && MessageBox.Show(
                     owner,
-                    "NVDA Sync will close, download the update, replace the files in this folder, and restart. Your Settings and Logs folders will be kept." + Environment.NewLine + Environment.NewLine + "Do you want to continue?",
+                    "NVDA Sync will close, verify the signed update, replace the files in this folder, and restart. Your Settings, Logs, and Backups folders will be kept." + Environment.NewLine + Environment.NewLine + "Do you want to continue?",
                     "Download and install",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question,
@@ -179,7 +187,9 @@ namespace NvdaAddonSync
                     FileName = updaterExe,
                     Arguments =
                         "--apply-update" +
-                        " --update-url " + CommandLineQuote(zipUrl) +
+                        " --update-url " + CommandLineQuote(package.Zip.BrowserDownloadUrl) +
+                        " --signature-url " + CommandLineQuote(package.Signature.BrowserDownloadUrl) +
+                        " --update-version " + CommandLineQuote(expectedVersion) +
                         " --update-target " + CommandLineQuote(appDir) +
                         " --update-exe " + CommandLineQuote(exePath) +
                         " --update-temp " + CommandLineQuote(updaterTempDir) +
@@ -232,7 +242,7 @@ namespace NvdaAddonSync
         {
             return (releases ?? new List<GitHubReleaseInfo>())
                 .Select(r => new { Release = r, Version = ReleaseVersion(r) })
-                .Where(i => i.Version != null)
+                .Where(i => i.Version != null && !i.Release.Draft && !i.Release.Prerelease)
                 .OrderByDescending(i => i.Version)
                 .Select(i => i.Release)
                 .FirstOrDefault();
@@ -249,7 +259,7 @@ namespace NvdaAddonSync
         {
             var newerReleases = (releases ?? new List<GitHubReleaseInfo>())
                 .Select(r => new { Release = r, Version = ReleaseVersion(r) })
-                .Where(i => i.Version != null && i.Version > current && i.Version <= latest)
+                .Where(i => i.Version != null && i.Version > current && i.Version <= latest && !i.Release.Draft && !i.Release.Prerelease)
                 .OrderBy(i => i.Version)
                 .ToList();
 
@@ -273,14 +283,30 @@ namespace NvdaAddonSync
             return builder.ToString().TrimEnd();
         }
 
-        private static GitHubReleaseAsset FindPortableZipAsset(GitHubReleaseInfo release)
+        internal static bool VerifyPackageSignature(string zipPath, string signaturePath)
+        {
+            var signatureText = File.ReadAllText(signaturePath, Encoding.ASCII).Trim();
+            byte[] signature;
+            try { signature = Convert.FromBase64String(signatureText); }
+            catch (FormatException) { return false; }
+            using (var rsa = new RSACryptoServiceProvider())
+            {
+                try
+                {
+                    rsa.FromXmlString(PublicKeyXml);
+                    return rsa.VerifyData(File.ReadAllBytes(zipPath), CryptoConfig.MapNameToOID("SHA256"), signature);
+                }
+                finally { rsa.PersistKeyInCsp = false; }
+            }
+        }
+
+        private static SignedPackage FindSignedPackage(GitHubReleaseInfo release)
         {
             if (release == null || release.Assets == null) return null;
-            return release.Assets
-                .Where(a => a != null && !string.IsNullOrWhiteSpace(a.BrowserDownloadUrl) && !string.IsNullOrWhiteSpace(a.Name))
-                .Where(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(a => a.Name.IndexOf("nvda", StringComparison.OrdinalIgnoreCase) >= 0 && a.Name.IndexOf("sync", StringComparison.OrdinalIgnoreCase) >= 0)
-                .FirstOrDefault();
+            var zip = release.Assets.FirstOrDefault(asset => string.Equals(asset.Name, PackageAssetName, StringComparison.OrdinalIgnoreCase));
+            if (zip == null) return null;
+            var signature = release.Assets.FirstOrDefault(asset => string.Equals(asset.Name, PackageAssetName + ".sig", StringComparison.OrdinalIgnoreCase));
+            return new SignedPackage { Zip = zip, Signature = signature };
         }
 
         private static string FormatReleaseNotesForDialog(string markdown, string emptyText)
@@ -312,7 +338,15 @@ namespace NvdaAddonSync
         {
             var map = value as Dictionary<string, object>;
             if (map == null) return null;
-            var release = new GitHubReleaseInfo { TagName = GetString(map, "tag_name"), HtmlUrl = GetString(map, "html_url"), Body = GetString(map, "body"), Assets = new List<GitHubReleaseAsset>() };
+            var release = new GitHubReleaseInfo
+            {
+                TagName = GetString(map, "tag_name"),
+                HtmlUrl = GetString(map, "html_url"),
+                Body = GetString(map, "body"),
+                Draft = GetBool(map, "draft"),
+                Prerelease = GetBool(map, "prerelease"),
+                Assets = new List<GitHubReleaseAsset>()
+            };
             object assetsValue;
             if (map.TryGetValue("assets", out assetsValue))
             {
@@ -334,6 +368,12 @@ namespace NvdaAddonSync
         {
             object value;
             return map.TryGetValue(key, out value) && value != null ? Convert.ToString(value) : string.Empty;
+        }
+
+        private static bool GetBool(Dictionary<string, object> map, string key)
+        {
+            object value;
+            return map.TryGetValue(key, out value) && value is bool && (bool)value;
         }
 
         private static void OpenUrl(string url)
@@ -370,6 +410,8 @@ namespace NvdaAddonSync
             public string TagName { get; set; }
             public string HtmlUrl { get; set; }
             public string Body { get; set; }
+            public bool Draft { get; set; }
+            public bool Prerelease { get; set; }
             public List<GitHubReleaseAsset> Assets { get; set; }
         }
 
@@ -377,6 +419,12 @@ namespace NvdaAddonSync
         {
             public string Name { get; set; }
             public string BrowserDownloadUrl { get; set; }
+        }
+
+        private sealed class SignedPackage
+        {
+            public GitHubReleaseAsset Zip { get; set; }
+            public GitHubReleaseAsset Signature { get; set; }
         }
     }
 }
