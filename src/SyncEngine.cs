@@ -101,6 +101,18 @@ namespace NvdaAddonSync
         public CancellationToken CancellationToken { get; set; }
     }
 
+    internal sealed class AutomaticSyncChange
+    {
+        public string FullPath { get; private set; }
+        public bool IncludeDirectoryContents { get; private set; }
+
+        public AutomaticSyncChange(string fullPath, bool includeDirectoryContents)
+        {
+            FullPath = fullPath ?? string.Empty;
+            IncludeDirectoryContents = includeDirectoryContents;
+        }
+    }
+
     internal sealed class SyncResult
     {
         public int ComponentsSynced { get; set; }
@@ -290,6 +302,12 @@ namespace NvdaAddonSync
             "speechDicts"
         };
 
+        private static readonly HashSet<string> MachineLocalRootDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "addonStore",
+            "addonUpdates"
+        };
+
         public event Action<string> Message;
 
         public SyncResult Sync(string primaryFolder, IEnumerable<string> secondaryFolders, SyncOptions options)
@@ -350,6 +368,366 @@ namespace NvdaAddonSync
             }
 
             return result;
+        }
+
+        public SyncResult SyncChanged(string primaryFolder, IEnumerable<string> secondaryFolders, SyncOptions options, IEnumerable<AutomaticSyncChange> changes)
+        {
+            if (options == null)
+            {
+                options = new SyncOptions();
+            }
+            if (options.Components == null)
+            {
+                options.Components = new List<SyncComponent>();
+            }
+            options.AddonMode = AddonSyncMode.Normalize(options.AddonMode);
+
+            var result = new SyncResult();
+            primaryFolder = ResolveNvdaConfigDirectory(primaryFolder, "Primary folder", true);
+            var relevantChanges = NormalizeAutomaticChanges(primaryFolder, changes, options);
+            if (relevantChanges.Count == 0)
+            {
+                return result;
+            }
+
+            foreach (var secondary in secondaryFolders)
+            {
+                options.CancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(secondary))
+                {
+                    continue;
+                }
+                try
+                {
+                    var target = ResolveNvdaConfigDirectory(secondary, "Secondary folder", false);
+                    ValidateFolderPair(primaryFolder, target);
+                    if (!IsTargetAvailable(target))
+                    {
+                        result.UnavailableTargets++;
+                        Log("Skipped unavailable secondary folder " + target);
+                        continue;
+                    }
+                    Directory.CreateDirectory(target);
+                    SyncChangedToTarget(primaryFolder, target, relevantChanges, result, options);
+                }
+                catch (DirectoryNotFoundException ex)
+                {
+                    result.UnavailableTargets++;
+                    Log("Skipped unavailable secondary folder: " + ex.Message);
+                }
+                catch (OperationCanceledException)
+                {
+                    Log("Sync cancelled.");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    result.Errors++;
+                    Log("Error: " + ex.Message);
+                }
+            }
+            return result;
+        }
+
+        public static bool IsAutomaticChangeRelevant(string primaryFolder, string changedPath, SyncOptions options)
+        {
+            if (options == null || options.Components == null || options.Components.Count == 0)
+            {
+                return false;
+            }
+            string normalizedPrimary;
+            string normalizedPath;
+            try
+            {
+                normalizedPrimary = Path.GetFullPath(primaryFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedPath = Path.GetFullPath(changedPath);
+            }
+            catch
+            {
+                return false;
+            }
+            if (!IsSameOrChild(normalizedPrimary, normalizedPath)
+                || string.Equals(normalizedPrimary, normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            if (ShouldIgnore(normalizedPath, options))
+            {
+                return false;
+            }
+            foreach (var component in GetAutomaticComponents(normalizedPrimary, normalizedPath))
+            {
+                if (options.Components.Contains(component)
+                    && (component != SyncComponent.Addons || options.AddonMode != AddonSyncMode.None))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void SyncChangedToTarget(string primaryFolder, string targetFolder, List<AutomaticSyncChange> changes, SyncResult result, SyncOptions options)
+        {
+            var touchedComponents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var hasAddonChanges = false;
+            foreach (var change in changes)
+            {
+                if (GetEnabledAutomaticComponents(primaryFolder, change.FullPath, options).Contains(SyncComponent.Addons))
+                {
+                    hasAddonChanges = true;
+                    break;
+                }
+            }
+            if (hasAddonChanges)
+            {
+                var primaryState = NvdaAddonTransactionGuard.Inspect(primaryFolder);
+                var targetState = NvdaAddonTransactionGuard.Inspect(targetFolder);
+                if (primaryState.IsPending || targetState.IsPending)
+                {
+                    result.ComponentsDeferred++;
+                    Log("Deferred Add-ons: " + (primaryState.IsPending ? primaryState.Reason : targetState.Reason) + ".");
+                    hasAddonChanges = false;
+                }
+            }
+
+            foreach (var change in changes)
+            {
+                options.CancellationToken.ThrowIfCancellationRequested();
+                var components = GetEnabledAutomaticComponents(primaryFolder, change.FullPath, options);
+                if (components.Count == 0)
+                {
+                    continue;
+                }
+                if (components.Contains(SyncComponent.Addons) && !hasAddonChanges)
+                {
+                    continue;
+                }
+                if (IsAddonStatePath(primaryFolder, change.FullPath)
+                    || NvdaAddonTransactionGuard.IsTransientAddonPath(change.FullPath))
+                {
+                    continue;
+                }
+
+                var relativePath = GetRelativePath(primaryFolder, change.FullPath);
+                var targetPath = Path.Combine(targetFolder, relativePath);
+                var component = SelectAutomaticComponentForTarget(primaryFolder, components, change.FullPath, targetPath);
+                if (component == null)
+                {
+                    continue;
+                }
+                if (component == SyncComponent.Addons
+                    && options.AddonMode == AddonSyncMode.ExistingOnly
+                    && !TargetContainsChangedAddon(primaryFolder, targetFolder, change.FullPath))
+                {
+                    result.ItemsIgnored++;
+                    continue;
+                }
+
+                if (File.Exists(change.FullPath))
+                {
+                    CopyOneFile(primaryFolder, change.FullPath, targetPath, result, options.CancellationToken);
+                    touchedComponents.Add(component.Id);
+                    continue;
+                }
+                if (Directory.Exists(change.FullPath))
+                {
+                    if (!change.IncludeDirectoryContents)
+                    {
+                        continue;
+                    }
+                    Directory.CreateDirectory(targetPath);
+                    CopyChangedFiles(change.FullPath, targetPath, result, options, component == SyncComponent.Addons);
+                    if (options.DeleteStaleItems)
+                    {
+                        DeleteStaleEntries(change.FullPath, targetPath, result, options, component == SyncComponent.Addons);
+                    }
+                    touchedComponents.Add(component.Id);
+                    continue;
+                }
+                if (!options.DeleteStaleItems)
+                {
+                    continue;
+                }
+                if (File.Exists(targetPath))
+                {
+                    DeleteFile(targetFolder, targetPath, result);
+                    touchedComponents.Add(component.Id);
+                }
+                else if (Directory.Exists(targetPath))
+                {
+                    DeleteDirectory(targetFolder, targetPath, result, true);
+                    touchedComponents.Add(component.Id);
+                }
+            }
+            result.ComponentsSynced += touchedComponents.Count;
+        }
+
+        private static List<AutomaticSyncChange> NormalizeAutomaticChanges(string primaryFolder, IEnumerable<AutomaticSyncChange> changes, SyncOptions options)
+        {
+            var byPath = new Dictionary<string, AutomaticSyncChange>(StringComparer.OrdinalIgnoreCase);
+            foreach (var change in changes ?? new AutomaticSyncChange[0])
+            {
+                if (change == null || !IsAutomaticChangeRelevant(primaryFolder, change.FullPath, options))
+                {
+                    continue;
+                }
+                var fullPath = Path.GetFullPath(change.FullPath);
+                AutomaticSyncChange existing;
+                if (!byPath.TryGetValue(fullPath, out existing) || (!existing.IncludeDirectoryContents && change.IncludeDirectoryContents))
+                {
+                    byPath[fullPath] = new AutomaticSyncChange(fullPath, change.IncludeDirectoryContents);
+                }
+            }
+            var ordered = new List<AutomaticSyncChange>(byPath.Values);
+            ordered.Sort((left, right) => left.FullPath.Length.CompareTo(right.FullPath.Length));
+            var result = new List<AutomaticSyncChange>();
+            foreach (var change in ordered)
+            {
+                var covered = false;
+                foreach (var parent in result)
+                {
+                    if (parent.IncludeDirectoryContents && IsSameOrChild(parent.FullPath, change.FullPath))
+                    {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (!covered)
+                {
+                    result.Add(change);
+                }
+            }
+            return result;
+        }
+
+        private static List<SyncComponent> GetEnabledAutomaticComponents(string primaryFolder, string changedPath, SyncOptions options)
+        {
+            var result = new List<SyncComponent>();
+            if (ShouldIgnore(changedPath, options))
+            {
+                return result;
+            }
+            foreach (var component in GetAutomaticComponents(primaryFolder, changedPath))
+            {
+                if (options.Components.Contains(component)
+                    && (component != SyncComponent.Addons || options.AddonMode != AddonSyncMode.None))
+                {
+                    result.Add(component);
+                }
+            }
+            return result;
+        }
+
+        private static List<SyncComponent> GetAutomaticComponents(string primaryFolder, string changedPath)
+        {
+            var components = new List<SyncComponent>();
+            var relativePath = GetRelativePath(primaryFolder, changedPath);
+            var parts = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (parts.Length == 0 || string.IsNullOrWhiteSpace(parts[0]))
+            {
+                return components;
+            }
+            var rootName = parts[0];
+            if (string.Equals(rootName, "addons", StringComparison.OrdinalIgnoreCase)
+                || IsAddonStateFileName(rootName))
+            {
+                components.Add(SyncComponent.Addons);
+                return components;
+            }
+            if (string.Equals(rootName, "profiles", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rootName, "profileTriggers.ini", StringComparison.OrdinalIgnoreCase))
+            {
+                components.Add(SyncComponent.ConfigProfiles);
+                return components;
+            }
+            if (string.Equals(rootName, "speechDicts", StringComparison.OrdinalIgnoreCase))
+            {
+                components.Add(SyncComponent.SpeechDictionaries);
+                return components;
+            }
+            if (string.Equals(rootName, "gestures.ini", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rootName, "inputGestures.ini", StringComparison.OrdinalIgnoreCase))
+            {
+                components.Add(SyncComponent.InputGestures);
+                return components;
+            }
+            if (string.Equals(rootName, "nvda.ini", StringComparison.OrdinalIgnoreCase))
+            {
+                components.Add(SyncComponent.NvdaIni);
+                return components;
+            }
+            if (ReservedRootConfigDirectories.Contains(rootName)
+                || MachineLocalRootDirectories.Contains(rootName)
+                || ReservedRootConfigFiles.Contains(rootName))
+            {
+                return components;
+            }
+            if (parts.Length > 1 || Directory.Exists(changedPath))
+            {
+                components.Add(SyncComponent.OtherConfigFolders);
+                return components;
+            }
+            if (File.Exists(changedPath))
+            {
+                components.Add(SyncComponent.OtherConfigFiles);
+                return components;
+            }
+            components.Add(SyncComponent.OtherConfigFiles);
+            components.Add(SyncComponent.OtherConfigFolders);
+            return components;
+        }
+
+        private static SyncComponent SelectAutomaticComponentForTarget(string primaryFolder, List<SyncComponent> components, string sourcePath, string targetPath)
+        {
+            foreach (var component in components)
+            {
+                if (component != SyncComponent.OtherConfigFiles && component != SyncComponent.OtherConfigFolders)
+                {
+                    return component;
+                }
+            }
+            var relativePath = GetRelativePath(primaryFolder, sourcePath);
+            var ambiguousMissingRootPath = relativePath.IndexOf(Path.DirectorySeparatorChar) < 0
+                && !File.Exists(sourcePath)
+                && !Directory.Exists(sourcePath);
+            if (components.Count == 1 && !ambiguousMissingRootPath)
+            {
+                return components[0];
+            }
+            if (File.Exists(sourcePath) || File.Exists(targetPath))
+            {
+                return components.Contains(SyncComponent.OtherConfigFiles) ? SyncComponent.OtherConfigFiles : null;
+            }
+            if (Directory.Exists(sourcePath) || Directory.Exists(targetPath))
+            {
+                return components.Contains(SyncComponent.OtherConfigFolders) ? SyncComponent.OtherConfigFolders : null;
+            }
+            return null;
+        }
+
+        private static bool TargetContainsChangedAddon(string primaryFolder, string targetFolder, string changedPath)
+        {
+            var relativePath = GetRelativePath(primaryFolder, changedPath);
+            var parts = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (parts.Length < 2)
+            {
+                return false;
+            }
+            return Directory.Exists(Path.Combine(primaryFolder, "addons", parts[1]))
+                && Directory.Exists(Path.Combine(targetFolder, "addons", parts[1]));
+        }
+
+        private static bool IsAddonStatePath(string primaryFolder, string path)
+        {
+            var relativePath = GetRelativePath(primaryFolder, path);
+            return relativePath.IndexOf(Path.DirectorySeparatorChar) < 0 && IsAddonStateFileName(relativePath);
+        }
+
+        private static bool IsAddonStateFileName(string name)
+        {
+            return string.Equals(name, "addonsState.json", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "addonsState.pickle", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "addonsState.pickle.bak", StringComparison.OrdinalIgnoreCase);
         }
 
         private void SyncComponentToTarget(string primaryFolder, string targetFolder, SyncComponent component, SyncResult result, SyncOptions options)
@@ -481,7 +859,7 @@ namespace NvdaAddonSync
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
                 var name = Path.GetFileName(sourceFile);
-                if (ReservedRootConfigFiles.Contains(name))
+                if (ReservedRootConfigFiles.Contains(name) || ShouldIgnore(sourceFile, options))
                 {
                     result.ItemsIgnored++;
                     continue;
@@ -496,6 +874,11 @@ namespace NvdaAddonSync
                     var name = Path.GetFileName(targetFile);
                     if (ReservedRootConfigFiles.Contains(name))
                     {
+                        continue;
+                    }
+                    if (ShouldIgnore(targetFile, options))
+                    {
+                        DeleteFile(targetFolder, targetFile, result);
                         continue;
                     }
                     var sourceFile = Path.Combine(primaryFolder, name);
@@ -515,7 +898,7 @@ namespace NvdaAddonSync
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
                 var name = Path.GetFileName(sourceDirectory);
-                if (ReservedRootConfigDirectories.Contains(name))
+                if (ReservedRootConfigDirectories.Contains(name) || MachineLocalRootDirectories.Contains(name))
                 {
                     result.ItemsIgnored++;
                     continue;
@@ -534,7 +917,7 @@ namespace NvdaAddonSync
                 {
                     options.CancellationToken.ThrowIfCancellationRequested();
                     var name = Path.GetFileName(targetDirectory);
-                    if (ReservedRootConfigDirectories.Contains(name))
+                    if (ReservedRootConfigDirectories.Contains(name) || MachineLocalRootDirectories.Contains(name))
                     {
                         continue;
                     }

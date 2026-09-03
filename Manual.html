@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.5.2.</p>
+	<p>Current version: 1.5.3.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -191,7 +191,8 @@
 	<p><strong>Exclude log files</strong> is also enabled by default. This skips <code>.log</code> files during user-configuration sync and removes stale copied logs when stale deletion is enabled. Logs are normally machine-local support files, so syncing them between NVDA copies is rarely useful.</p>
 	<p>NVDA Sync also skips transient browser-profile cache and session files created by add-ons that embed Chrome or WebView-style data. These files are often locked while NVDA is running and are normally rebuilt by the add-on, so they are treated like cache rather than reported as sync errors.</p>
 	<p><strong>Write rolling log file</strong> is off by default. The visible log in the main window still works during each run. Enable file logging only when you want a persistent <code>Logs\NVDASync.log</code> for troubleshooting, or use <strong>Options &gt; Save log</strong> to save the visible log manually.</p>
-	<p>Auto-sync uses file-system change events from the primary folder and waits at least 1.5 seconds after the last change before syncing. If NVDA is installing, replacing, or removing an add-on, NVDA Sync waits for NVDA to complete that work during restart and then allows another settle period. It does not copy <code>.pendingInstall</code> or <code>.delete</code> transaction paths, and it does not copy <code>addonsState.json</code> or older add-on state files between NVDA installations.</p>
+	<p>Auto-sync uses file-system change events from the primary folder and waits at least 1.5 seconds after the last change before syncing. An automatic pass mirrors only the changed files or renamed folders for each secondary folder's enabled components; it does not rescan unrelated add-ons, voices, or other configuration trees. Excluded logs, Python caches, transient browser-profile data, and NVDA's local add-on-store data do not trigger target access. If Windows reports that watcher events were lost during exceptional churn, NVDA Sync records the problem and performs one full configuration reconciliation after the source settles. Portable NVDA program-file updates remain a deliberate manual sync operation.</p>
+	<p>If NVDA is installing, replacing, or removing an add-on, NVDA Sync waits for NVDA to complete that work during restart and then allows another settle period. It does not copy <code>.pendingInstall</code> or <code>.delete</code> transaction paths, and it does not copy <code>addonsState.json</code> or older add-on state files between NVDA installations. If a secondary NVDA copy is completing its own add-on update, its exact queued changes are retained and retried without rescanning other secondary folders. Temporary copy failures also receive a limited series of exact-path retries with increasing delays.</p>
 	<p>Manual add-on sync is also postponed while the primary reports unfinished add-on work. A secondary which is completing its own add-on transaction is left untouched. Other source changes detected during a running sync are queued for a new settled comparison afterward. Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
 	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, NVDA Sync checks whether unavailable folders have returned at the interval set in Preferences. The interval accepts 1 to 1440 minutes and defaults to 60 minutes. A check does not run a full sync while a folder remains unavailable; syncing begins after the folder returns.</p>
 	<p>The notification area tooltip reports the current state, such as ready, watching, syncing, waiting for a drive, or finished with errors.</p>
@@ -293,6 +294,14 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.5.3</h3>
+	<ul>
+		<li>Changed automatic sync to mirror only files and folders that actually changed instead of rescanning every selected component and secondary folder after each event.</li>
+		<li>Stopped excluded logs, Python caches, browser data, and NVDA add-on-store activity from causing unnecessary secondary-drive access.</li>
+		<li>Kept portable NVDA program-file updates as a deliberate manual operation instead of running them after ordinary profile changes.</li>
+		<li>Added recovery when Windows reports lost watcher events, retained changes deferred by a secondary add-on update, and added bounded retries for temporary copy failures.</li>
+	</ul>
 
 	<h3>1.5.2</h3>
 	<ul>

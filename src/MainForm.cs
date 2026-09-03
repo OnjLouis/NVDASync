@@ -14,6 +14,8 @@ namespace NvdaAddonSync
         private const int MaxSecondaryFolders = 5;
         private const int PrimaryChangeSettleMilliseconds = 1500;
         private const int PendingAddonRetryMilliseconds = 3000;
+        private const int PendingTargetAddonRetryMilliseconds = 30000;
+        private const int MaximumAutomaticErrorRetries = 5;
 
         private readonly AppSettings settings;
         private readonly SyncEngine syncEngine;
@@ -32,10 +34,14 @@ namespace NvdaAddonSync
         private readonly EventWaitHandle syncEvent;
         private readonly List<Thread> commandThreads;
         private readonly HashSet<string> unavailableSecondaryFolders;
+        private readonly Dictionary<string, bool> pendingAutomaticChanges;
+        private readonly Dictionary<string, Dictionary<string, bool>> pendingAutomaticTargetChanges;
+        private readonly HashSet<string> pendingAutomaticFullReconciliationTargets;
+        private readonly Dictionary<string, int> automaticErrorRetryAttempts;
         private CancellationTokenSource syncCancellation;
         private bool loaded;
         private bool syncing;
-        private bool automaticSyncQueued;
+        private bool automaticFullReconciliationQueued;
         private bool waitingForAddonTransaction;
         private bool lastStartupRegistrationSetting;
         private string currentStatus;
@@ -57,6 +63,10 @@ namespace NvdaAddonSync
             KeyPreview = true;
             commandThreads = new List<Thread>();
             unavailableSecondaryFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            pendingAutomaticChanges = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            pendingAutomaticTargetChanges = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+            pendingAutomaticFullReconciliationTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            automaticErrorRetryAttempts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             settings = AppSettings.Load();
             ApplyStartupRegistration(false);
@@ -79,11 +89,13 @@ namespace NvdaAddonSync
 
             watcher = new FileSystemWatcher();
             watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 64 * 1024;
             watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size;
             watcher.Changed += OnPrimaryFolderChanged;
             watcher.Created += OnPrimaryFolderChanged;
             watcher.Deleted += OnPrimaryFolderChanged;
             watcher.Renamed += OnPrimaryFolderChanged;
+            watcher.Error += OnPrimaryWatcherError;
 
             trayIcon = new NotifyIcon();
             currentStatus = "Starting";
@@ -632,7 +644,7 @@ namespace NvdaAddonSync
                 if (!settings.AutoSync)
                 {
                     syncDebounceTimer.Stop();
-                    automaticSyncQueued = false;
+                    ClearPendingAutomaticWork();
                     waitingForAddonTransaction = false;
                     watchedPrimaryFolder = null;
                     SetStatus("Ready");
@@ -648,7 +660,7 @@ namespace NvdaAddonSync
                     if (changedWatchPath)
                     {
                         syncDebounceTimer.Stop();
-                        automaticSyncQueued = false;
+                        ClearPendingAutomaticWork();
                         waitingForAddonTransaction = false;
                     }
                     watcher.Path = primary;
@@ -668,9 +680,54 @@ namespace NvdaAddonSync
         }
         private void OnPrimaryFolderChanged(object sender, FileSystemEventArgs e)
         {
+            var changes = new List<AutomaticSyncChange>();
+            if (e.ChangeType != WatcherChangeTypes.Changed || !Directory.Exists(e.FullPath))
+            {
+                changes.Add(new AutomaticSyncChange(
+                    e.FullPath,
+                    (e.ChangeType == WatcherChangeTypes.Created || e.ChangeType == WatcherChangeTypes.Renamed)
+                        && Directory.Exists(e.FullPath)));
+            }
+            var renamed = e as RenamedEventArgs;
+            if (renamed != null)
+            {
+                changes.Add(new AutomaticSyncChange(renamed.OldFullPath, false));
+            }
+            if (changes.Count == 0)
+            {
+                return;
+            }
             BeginInvoke(new Action(delegate
             {
-                automaticSyncQueued = true;
+                var queuedAny = false;
+                foreach (var change in changes)
+                {
+                    if (!IsAutomaticChangeRelevantForAnyProfile(change.FullPath))
+                    {
+                        continue;
+                    }
+                    bool existingIncludeDirectoryContents;
+                    pendingAutomaticChanges.TryGetValue(change.FullPath, out existingIncludeDirectoryContents);
+                    pendingAutomaticChanges[change.FullPath] = existingIncludeDirectoryContents || change.IncludeDirectoryContents;
+                    queuedAny = true;
+                }
+                if (!queuedAny)
+                {
+                    return;
+                }
+                ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
+            }));
+        }
+
+        private void OnPrimaryWatcherError(object sender, ErrorEventArgs e)
+        {
+            BeginInvoke(new Action(delegate
+            {
+                if (!automaticFullReconciliationQueued)
+                {
+                    AddLog("Primary-folder watcher lost change details: " + e.GetException().Message + ". Scheduling one full configuration reconciliation.");
+                }
+                automaticFullReconciliationQueued = true;
                 ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
             }));
         }
@@ -680,16 +737,22 @@ namespace NvdaAddonSync
             syncDebounceTimer.Stop();
             if (!settings.AutoSync)
             {
-                automaticSyncQueued = false;
+                ClearPendingAutomaticWork();
                 return;
             }
             if (syncing)
             {
-                automaticSyncQueued = true;
                 return;
             }
 
-            if (HasConfiguredAddonSync())
+            if (!HasPendingAutomaticWork())
+            {
+                return;
+            }
+
+            if (automaticFullReconciliationQueued
+                || pendingAutomaticFullReconciliationTargets.Count > 0
+                || PendingAutomaticChangesIncludeAddons())
             {
                 try
                 {
@@ -697,7 +760,6 @@ namespace NvdaAddonSync
                     var transaction = NvdaAddonTransactionGuard.Inspect(primary);
                     if (transaction.IsPending)
                     {
-                        automaticSyncQueued = true;
                         if (!waitingForAddonTransaction)
                         {
                             AddLog("Automatic sync postponed: " + transaction.Reason + ". Restart NVDA to finish the add-on update.");
@@ -722,8 +784,177 @@ namespace NvdaAddonSync
                 }
             }
 
-            automaticSyncQueued = false;
-            SyncNow("Primary changed", true);
+            var changes = new List<AutomaticSyncChange>();
+            foreach (var change in pendingAutomaticChanges)
+            {
+                changes.Add(new AutomaticSyncChange(change.Key, change.Value));
+            }
+            pendingAutomaticChanges.Clear();
+            var targetChanges = TakePendingAutomaticTargetChanges();
+            var fullReconciliation = automaticFullReconciliationQueued;
+            automaticFullReconciliationQueued = false;
+            var fullReconciliationTargets = new HashSet<string>(pendingAutomaticFullReconciliationTargets, StringComparer.OrdinalIgnoreCase);
+            pendingAutomaticFullReconciliationTargets.Clear();
+            var changeCount = changes.Count;
+            foreach (var targetEntry in targetChanges)
+            {
+                changeCount += targetEntry.Value.Count;
+            }
+            var reason = fullReconciliation
+                ? "Watcher overflow recovery"
+                : "Primary changed: " + changeCount + (changeCount == 1 ? " path" : " paths");
+            SyncNow(reason, true, changes, fullReconciliation, targetChanges, fullReconciliationTargets);
+        }
+
+        private bool IsAutomaticChangeRelevantForAnyProfile(string changedPath)
+        {
+            var primary = GetPrimaryFolder();
+            foreach (var profile in GetSecondaryProfiles())
+            {
+                var policy = profile.Resolve(settings);
+                if (SyncEngine.IsAutomaticChangeRelevant(primary, changedPath, CreateSyncOptions(policy, CancellationToken.None)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool PendingAutomaticChangesIncludeAddons()
+        {
+            var primary = GetPrimaryFolder();
+            foreach (var profile in GetSecondaryProfiles())
+            {
+                var policy = profile.Resolve(settings);
+                var addonOptions = CreateSyncOptions(policy, CancellationToken.None);
+                addonOptions.Components = new List<SyncComponent> { SyncComponent.Addons };
+                foreach (var change in pendingAutomaticChanges.Keys)
+                {
+                    if (SyncEngine.IsAutomaticChangeRelevant(primary, change, addonOptions))
+                    {
+                        return true;
+                    }
+                }
+                foreach (var targetEntry in pendingAutomaticTargetChanges)
+                {
+                    foreach (var change in targetEntry.Value.Keys)
+                    {
+                        if (SyncEngine.IsAutomaticChangeRelevant(primary, change, addonOptions))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        private bool HasPendingAutomaticWork()
+        {
+            return pendingAutomaticChanges.Count > 0
+                || pendingAutomaticTargetChanges.Count > 0
+                || automaticFullReconciliationQueued
+                || pendingAutomaticFullReconciliationTargets.Count > 0;
+        }
+
+        private void ClearPendingAutomaticWork()
+        {
+            pendingAutomaticChanges.Clear();
+            pendingAutomaticTargetChanges.Clear();
+            pendingAutomaticFullReconciliationTargets.Clear();
+            automaticErrorRetryAttempts.Clear();
+            automaticFullReconciliationQueued = false;
+        }
+
+        private Dictionary<string, List<AutomaticSyncChange>> TakePendingAutomaticTargetChanges()
+        {
+            var result = new Dictionary<string, List<AutomaticSyncChange>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var targetEntry in pendingAutomaticTargetChanges)
+            {
+                var changes = new List<AutomaticSyncChange>();
+                foreach (var change in targetEntry.Value)
+                {
+                    changes.Add(new AutomaticSyncChange(change.Key, change.Value));
+                }
+                result[targetEntry.Key] = changes;
+            }
+            pendingAutomaticTargetChanges.Clear();
+            return result;
+        }
+
+        private void QueueAutomaticRetryForTarget(string targetPath, IEnumerable<AutomaticSyncChange> changes, bool fullReconciliation)
+        {
+            Dictionary<string, bool> targetChanges;
+            if (!pendingAutomaticTargetChanges.TryGetValue(targetPath, out targetChanges))
+            {
+                targetChanges = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                pendingAutomaticTargetChanges[targetPath] = targetChanges;
+            }
+            foreach (var change in changes ?? new AutomaticSyncChange[0])
+            {
+                bool includeDirectoryContents;
+                targetChanges.TryGetValue(change.FullPath, out includeDirectoryContents);
+                targetChanges[change.FullPath] = includeDirectoryContents || change.IncludeDirectoryContents;
+            }
+            if (fullReconciliation)
+            {
+                pendingAutomaticFullReconciliationTargets.Add(targetPath);
+            }
+        }
+
+        private int QueueAutomaticRetries(IEnumerable<AutomaticTargetOutcome> outcomes)
+        {
+            var nextDelay = 0;
+            foreach (var outcome in outcomes)
+            {
+                if (outcome.Result.ComponentsDeferred > 0)
+                {
+                    automaticErrorRetryAttempts.Remove(outcome.TargetPath);
+                    QueueAutomaticRetryForTarget(outcome.TargetPath, outcome.Changes, outcome.FullReconciliation);
+                    nextDelay = EarlierRetry(nextDelay, PendingTargetAddonRetryMilliseconds);
+                    AddLog("Automatic sync will retry " + outcome.TargetPath + " after its NVDA add-on update finishes.");
+                    continue;
+                }
+                if (outcome.Result.Errors > 0)
+                {
+                    int attempt;
+                    automaticErrorRetryAttempts.TryGetValue(outcome.TargetPath, out attempt);
+                    attempt++;
+                    if (attempt <= MaximumAutomaticErrorRetries)
+                    {
+                        automaticErrorRetryAttempts[outcome.TargetPath] = attempt;
+                        QueueAutomaticRetryForTarget(outcome.TargetPath, outcome.Changes, outcome.FullReconciliation);
+                        var delay = GetAutomaticErrorRetryDelay(attempt);
+                        nextDelay = EarlierRetry(nextDelay, delay);
+                        AddLog("Automatic sync will retry " + outcome.TargetPath + " in " + (delay / 1000) + " seconds (attempt " + attempt + " of " + MaximumAutomaticErrorRetries + ").");
+                    }
+                    else
+                    {
+                        automaticErrorRetryAttempts.Remove(outcome.TargetPath);
+                        AddLog("Automatic retry stopped for " + outcome.TargetPath + " after " + MaximumAutomaticErrorRetries + " unsuccessful attempts. A later source change or manual sync can try again.");
+                    }
+                    continue;
+                }
+                automaticErrorRetryAttempts.Remove(outcome.TargetPath);
+            }
+            return nextDelay;
+        }
+
+        private static int EarlierRetry(int currentDelay, int candidateDelay)
+        {
+            return currentDelay == 0 ? candidateDelay : Math.Min(currentDelay, candidateDelay);
+        }
+
+        private static int GetAutomaticErrorRetryDelay(int attempt)
+        {
+            switch (attempt)
+            {
+                case 1: return 2000;
+                case 2: return 4000;
+                case 3: return 8000;
+                case 4: return 16000;
+                default: return 30000;
+            }
         }
 
         private void ScheduleAutomaticSync(int intervalMilliseconds)
@@ -735,21 +966,6 @@ namespace NvdaAddonSync
             syncDebounceTimer.Stop();
             syncDebounceTimer.Interval = intervalMilliseconds;
             syncDebounceTimer.Start();
-        }
-
-        private bool HasConfiguredAddonSync()
-        {
-            foreach (var profile in GetSecondaryProfiles())
-            {
-                var policy = profile.Resolve(settings);
-                if (policy.Components != null
-                    && policy.Components.Contains(SyncComponent.Addons)
-                    && AddonSyncMode.Normalize(policy.AddonMode) != AddonSyncMode.None)
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private void OnAvailabilityTimerTick(object sender, EventArgs e)
@@ -1073,7 +1289,13 @@ namespace NvdaAddonSync
             logTextBox.SelectionLength = 0;
         }
 
-        private async void SyncNow(string reason, bool automaticRequest = false)
+        private async void SyncNow(
+            string reason,
+            bool automaticRequest = false,
+            List<AutomaticSyncChange> automaticChanges = null,
+            bool fullConfigReconciliation = false,
+            Dictionary<string, List<AutomaticSyncChange>> automaticTargetChanges = null,
+            HashSet<string> fullConfigReconciliationTargets = null)
         {
             if (syncing)
             {
@@ -1109,7 +1331,12 @@ namespace NvdaAddonSync
                 SetStatus("Ready");
                 return;
             }
-            if (PoliciesSyncAddons(policies))
+            var allAutomaticChanges = MergeAutomaticChanges(automaticChanges, automaticTargetChanges);
+            if (PoliciesSyncAddons(policies)
+                && (!automaticRequest
+                    || fullConfigReconciliation
+                    || (fullConfigReconciliationTargets != null && fullConfigReconciliationTargets.Count > 0)
+                    || AutomaticChangesIncludeAddons(primary, policies, allAutomaticChanges)))
             {
                 var transaction = NvdaAddonTransactionGuard.Inspect(primary);
                 if (transaction.IsPending)
@@ -1122,22 +1349,40 @@ namespace NvdaAddonSync
                     FocusLog();
                     if (settings.AutoSync)
                     {
-                        automaticSyncQueued = true;
+                        foreach (var change in automaticChanges ?? new List<AutomaticSyncChange>())
+                        {
+                            bool includeDirectoryContents;
+                            pendingAutomaticChanges.TryGetValue(change.FullPath, out includeDirectoryContents);
+                            pendingAutomaticChanges[change.FullPath] = includeDirectoryContents || change.IncludeDirectoryContents;
+                        }
+                        if (automaticTargetChanges != null)
+                        {
+                            foreach (var targetEntry in automaticTargetChanges)
+                            {
+                                QueueAutomaticRetryForTarget(targetEntry.Key, targetEntry.Value, false);
+                            }
+                        }
+                        if (fullConfigReconciliationTargets != null)
+                        {
+                            pendingAutomaticFullReconciliationTargets.UnionWith(fullConfigReconciliationTargets);
+                        }
+                        automaticFullReconciliationQueued = fullConfigReconciliation || automaticFullReconciliationQueued;
                         waitingForAddonTransaction = true;
                         ScheduleAutomaticSync(PendingAddonRetryMilliseconds);
                     }
                     return;
                 }
             }
-            settings.PrimaryFolder = primary;
-            settings.SecondaryFolderProfiles = GetSecondaryProfiles();
-            settings.SyncLegacySecondaryFolders();
-            settings.Save();
             var cancellation = new CancellationTokenSource();
             syncCancellation = cancellation;
+            var automaticOutcomes = new List<AutomaticTargetOutcome>();
+            var automaticRetryDelay = 0;
             try
             {
-                SaveSettingsFromControls();
+                if (!automaticRequest)
+                {
+                    SaveSettingsFromControls();
+                }
                 var result = await Task.Factory.StartNew(
                     delegate
                     {
@@ -1147,22 +1392,24 @@ namespace NvdaAddonSync
                             cancellation.Token.ThrowIfCancellationRequested();
                             if (policy.Components != null && policy.Components.Count > 0)
                             {
-                                var configResult = syncEngine.Sync(
-                                    primary,
-                                    new[] { policy.Path },
-                                    new SyncOptions
-                                    {
-                                        DeleteStaleItems = policy.DeleteStaleItems,
-                                        ExcludePythonCache = policy.ExcludePythonCache,
-                                        ExcludeLogFiles = policy.ExcludeLogFiles,
-                                        AddonMode = policy.AddonMode,
-                                        Components = policy.Components,
-                                        CancellationToken = cancellation.Token
-                                    }
-                                );
+                                var syncOptions = CreateSyncOptions(policy, cancellation.Token);
+                                var policyChanges = MergeAutomaticChangesForTarget(automaticChanges, automaticTargetChanges, policy.Path);
+                                var policyFullReconciliation = fullConfigReconciliation
+                                    || (fullConfigReconciliationTargets != null && fullConfigReconciliationTargets.Contains(policy.Path));
+                                if (automaticRequest && !policyFullReconciliation && policyChanges.Count == 0)
+                                {
+                                    continue;
+                                }
+                                var configResult = automaticRequest && !policyFullReconciliation
+                                    ? syncEngine.SyncChanged(primary, new[] { policy.Path }, syncOptions, policyChanges)
+                                    : syncEngine.Sync(primary, new[] { policy.Path }, syncOptions);
                                 AddSyncResult(total, configResult);
+                                if (automaticRequest)
+                                {
+                                    automaticOutcomes.Add(new AutomaticTargetOutcome(policy.Path, policyChanges, policyFullReconciliation, configResult));
+                                }
                             }
-                            if (policy.SyncNvdaProgramFiles)
+                            if (!automaticRequest && policy.SyncNvdaProgramFiles)
                             {
                                 var programResult = PortableNvdaUpdateService.UpdateTarget(PortableNvdaUpdateService.DetectInstalledNvdaProgramFolder(), policy.Path, policy.CreateProgramBackups, cancellation.Token);
                                 total.ComponentsSynced += programResult.TargetsUpdated;
@@ -1191,6 +1438,10 @@ namespace NvdaAddonSync
                     result.Errors,
                     FormatDuration(syncStopwatch.Elapsed)
                 ));
+                if (automaticRequest)
+                {
+                    automaticRetryDelay = QueueAutomaticRetries(automaticOutcomes);
+                }
                 if (result.Errors != 0)
                 {
                     SetStatus("Finished with errors");
@@ -1230,10 +1481,73 @@ namespace NvdaAddonSync
                 syncing = false;
                 RefreshUnavailableSecondaryFolders();
                 FocusLog();
-                if (automaticSyncQueued && settings.AutoSync)
+                if (HasPendingAutomaticWork() && settings.AutoSync)
                 {
-                    ScheduleAutomaticSync(PrimaryChangeSettleMilliseconds);
+                    var hasNewAllTargetWork = pendingAutomaticChanges.Count > 0 || automaticFullReconciliationQueued;
+                    ScheduleAutomaticSync(hasNewAllTargetWork || automaticRetryDelay == 0
+                        ? PrimaryChangeSettleMilliseconds
+                        : automaticRetryDelay);
                 }
+            }
+        }
+
+        private static List<AutomaticSyncChange> MergeAutomaticChanges(
+            IEnumerable<AutomaticSyncChange> allTargetChanges,
+            Dictionary<string, List<AutomaticSyncChange>> targetChanges)
+        {
+            var result = new List<AutomaticSyncChange>();
+            result.AddRange(allTargetChanges ?? new AutomaticSyncChange[0]);
+            if (targetChanges != null)
+            {
+                foreach (var targetEntry in targetChanges)
+                {
+                    result.AddRange(targetEntry.Value);
+                }
+            }
+            return result;
+        }
+
+        private static List<AutomaticSyncChange> MergeAutomaticChangesForTarget(
+            IEnumerable<AutomaticSyncChange> allTargetChanges,
+            Dictionary<string, List<AutomaticSyncChange>> targetChanges,
+            string targetPath)
+        {
+            var merged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var change in allTargetChanges ?? new AutomaticSyncChange[0])
+            {
+                merged[change.FullPath] = change.IncludeDirectoryContents;
+            }
+            List<AutomaticSyncChange> targetSpecificChanges;
+            if (targetChanges != null && targetChanges.TryGetValue(targetPath, out targetSpecificChanges))
+            {
+                foreach (var change in targetSpecificChanges)
+                {
+                    bool includeDirectoryContents;
+                    merged.TryGetValue(change.FullPath, out includeDirectoryContents);
+                    merged[change.FullPath] = includeDirectoryContents || change.IncludeDirectoryContents;
+                }
+            }
+            var result = new List<AutomaticSyncChange>();
+            foreach (var change in merged)
+            {
+                result.Add(new AutomaticSyncChange(change.Key, change.Value));
+            }
+            return result;
+        }
+
+        private sealed class AutomaticTargetOutcome
+        {
+            public string TargetPath { get; private set; }
+            public List<AutomaticSyncChange> Changes { get; private set; }
+            public bool FullReconciliation { get; private set; }
+            public SyncResult Result { get; private set; }
+
+            public AutomaticTargetOutcome(string targetPath, List<AutomaticSyncChange> changes, bool fullReconciliation, SyncResult result)
+            {
+                TargetPath = targetPath;
+                Changes = changes;
+                FullReconciliation = fullReconciliation;
+                Result = result;
             }
         }
 
@@ -1249,6 +1563,36 @@ namespace NvdaAddonSync
                 }
             }
             return false;
+        }
+
+        private static bool AutomaticChangesIncludeAddons(string primaryFolder, IEnumerable<SecondaryFolderPolicy> policies, IEnumerable<AutomaticSyncChange> changes)
+        {
+            foreach (var policy in policies)
+            {
+                var options = CreateSyncOptions(policy, CancellationToken.None);
+                options.Components = new List<SyncComponent> { SyncComponent.Addons };
+                foreach (var change in changes ?? new AutomaticSyncChange[0])
+                {
+                    if (SyncEngine.IsAutomaticChangeRelevant(primaryFolder, change.FullPath, options))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static SyncOptions CreateSyncOptions(SecondaryFolderPolicy policy, CancellationToken cancellationToken)
+        {
+            return new SyncOptions
+            {
+                DeleteStaleItems = policy.DeleteStaleItems,
+                ExcludePythonCache = policy.ExcludePythonCache,
+                ExcludeLogFiles = policy.ExcludeLogFiles,
+                AddonMode = policy.AddonMode,
+                Components = policy.Components,
+                CancellationToken = cancellationToken
+            };
         }
 
         private static void AddSyncResult(SyncResult total, SyncResult addition)
