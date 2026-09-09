@@ -750,9 +750,9 @@ namespace NvdaAddonSync
                 return;
             }
 
-            if (automaticFullReconciliationQueued
-                || pendingAutomaticFullReconciliationTargets.Count > 0
-                || PendingAutomaticChangesIncludeAddons())
+            if (!automaticFullReconciliationQueued
+                && pendingAutomaticFullReconciliationTargets.Count == 0
+                && PendingAutomaticWorkIsAddonsOnly())
             {
                 try
                 {
@@ -820,33 +820,43 @@ namespace NvdaAddonSync
             return false;
         }
 
-        private bool PendingAutomaticChangesIncludeAddons()
+        private bool PendingAutomaticWorkIsAddonsOnly()
         {
             var primary = GetPrimaryFolder();
-            foreach (var profile in GetSecondaryProfiles())
+            var foundAddonChange = false;
+            var changes = new List<AutomaticSyncChange>();
+            foreach (var change in pendingAutomaticChanges)
             {
-                var policy = profile.Resolve(settings);
-                var addonOptions = CreateSyncOptions(policy, CancellationToken.None);
-                addonOptions.Components = new List<SyncComponent> { SyncComponent.Addons };
-                foreach (var change in pendingAutomaticChanges.Keys)
+                changes.Add(new AutomaticSyncChange(change.Key, change.Value));
+            }
+            foreach (var targetEntry in pendingAutomaticTargetChanges)
+            {
+                foreach (var change in targetEntry.Value)
                 {
-                    if (SyncEngine.IsAutomaticChangeRelevant(primary, change, addonOptions))
-                    {
-                        return true;
-                    }
-                }
-                foreach (var targetEntry in pendingAutomaticTargetChanges)
-                {
-                    foreach (var change in targetEntry.Value.Keys)
-                    {
-                        if (SyncEngine.IsAutomaticChangeRelevant(primary, change, addonOptions))
-                        {
-                            return true;
-                        }
-                    }
+                    changes.Add(new AutomaticSyncChange(change.Key, change.Value));
                 }
             }
-            return false;
+            foreach (var change in changes)
+            {
+                var isAddonChange = false;
+                foreach (var profile in GetSecondaryProfiles())
+                {
+                    var policy = profile.Resolve(settings);
+                    var addonOptions = CreateSyncOptions(policy, CancellationToken.None);
+                    addonOptions.Components = new List<SyncComponent> { SyncComponent.Addons };
+                    if (SyncEngine.IsAutomaticChangeRelevant(primary, change.FullPath, addonOptions))
+                    {
+                        isAddonChange = true;
+                        break;
+                    }
+                }
+                if (!isAddonChange)
+                {
+                    return false;
+                }
+                foundAddonChange = true;
+            }
+            return foundAddonChange;
         }
 
         private bool HasPendingAutomaticWork()
@@ -1331,48 +1341,6 @@ namespace NvdaAddonSync
                 SetStatus("Ready");
                 return;
             }
-            var allAutomaticChanges = MergeAutomaticChanges(automaticChanges, automaticTargetChanges);
-            if (PoliciesSyncAddons(policies)
-                && (!automaticRequest
-                    || fullConfigReconciliation
-                    || (fullConfigReconciliationTargets != null && fullConfigReconciliationTargets.Count > 0)
-                    || AutomaticChangesIncludeAddons(primary, policies, allAutomaticChanges)))
-            {
-                var transaction = NvdaAddonTransactionGuard.Inspect(primary);
-                if (transaction.IsPending)
-                {
-                    AddLog((automaticRequest ? "Automatic sync postponed: " : "Sync postponed: ") + transaction.Reason + ". Restart NVDA to finish the add-on update.");
-                    SetStatus("Waiting for NVDA");
-                    syncing = false;
-                    syncButton.Enabled = true;
-                    cancelButton.Enabled = false;
-                    FocusLog();
-                    if (settings.AutoSync)
-                    {
-                        foreach (var change in automaticChanges ?? new List<AutomaticSyncChange>())
-                        {
-                            bool includeDirectoryContents;
-                            pendingAutomaticChanges.TryGetValue(change.FullPath, out includeDirectoryContents);
-                            pendingAutomaticChanges[change.FullPath] = includeDirectoryContents || change.IncludeDirectoryContents;
-                        }
-                        if (automaticTargetChanges != null)
-                        {
-                            foreach (var targetEntry in automaticTargetChanges)
-                            {
-                                QueueAutomaticRetryForTarget(targetEntry.Key, targetEntry.Value, false);
-                            }
-                        }
-                        if (fullConfigReconciliationTargets != null)
-                        {
-                            pendingAutomaticFullReconciliationTargets.UnionWith(fullConfigReconciliationTargets);
-                        }
-                        automaticFullReconciliationQueued = fullConfigReconciliation || automaticFullReconciliationQueued;
-                        waitingForAddonTransaction = true;
-                        ScheduleAutomaticSync(PendingAddonRetryMilliseconds);
-                    }
-                    return;
-                }
-            }
             var cancellation = new CancellationTokenSource();
             syncCancellation = cancellation;
             var automaticOutcomes = new List<AutomaticTargetOutcome>();
@@ -1438,6 +1406,10 @@ namespace NvdaAddonSync
                     result.Errors,
                     FormatDuration(syncStopwatch.Elapsed)
                 ));
+                if (result.ComponentsDeferred != 0)
+                {
+                    AddLog("Add-on sync was deferred; other selected components were still processed. Review the preceding Deferred Add-ons entry for the exact folder, marker, or state value. Restart the NVDA copy for the named folder to finish genuine pending work; if the same item remains, include this log in a support report.");
+                }
                 if (automaticRequest)
                 {
                     automaticRetryDelay = QueueAutomaticRetries(automaticOutcomes);
@@ -1491,22 +1463,6 @@ namespace NvdaAddonSync
             }
         }
 
-        private static List<AutomaticSyncChange> MergeAutomaticChanges(
-            IEnumerable<AutomaticSyncChange> allTargetChanges,
-            Dictionary<string, List<AutomaticSyncChange>> targetChanges)
-        {
-            var result = new List<AutomaticSyncChange>();
-            result.AddRange(allTargetChanges ?? new AutomaticSyncChange[0]);
-            if (targetChanges != null)
-            {
-                foreach (var targetEntry in targetChanges)
-                {
-                    result.AddRange(targetEntry.Value);
-                }
-            }
-            return result;
-        }
-
         private static List<AutomaticSyncChange> MergeAutomaticChangesForTarget(
             IEnumerable<AutomaticSyncChange> allTargetChanges,
             Dictionary<string, List<AutomaticSyncChange>> targetChanges,
@@ -1549,37 +1505,6 @@ namespace NvdaAddonSync
                 FullReconciliation = fullReconciliation;
                 Result = result;
             }
-        }
-
-        private static bool PoliciesSyncAddons(IEnumerable<SecondaryFolderPolicy> policies)
-        {
-            foreach (var policy in policies)
-            {
-                if (policy.Components != null
-                    && policy.Components.Contains(SyncComponent.Addons)
-                    && AddonSyncMode.Normalize(policy.AddonMode) != AddonSyncMode.None)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static bool AutomaticChangesIncludeAddons(string primaryFolder, IEnumerable<SecondaryFolderPolicy> policies, IEnumerable<AutomaticSyncChange> changes)
-        {
-            foreach (var policy in policies)
-            {
-                var options = CreateSyncOptions(policy, CancellationToken.None);
-                options.Components = new List<SyncComponent> { SyncComponent.Addons };
-                foreach (var change in changes ?? new AutomaticSyncChange[0])
-                {
-                    if (SyncEngine.IsAutomaticChangeRelevant(primaryFolder, change.FullPath, options))
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
 
         private static SyncOptions CreateSyncOptions(SecondaryFolderPolicy policy, CancellationToken cancellationToken)

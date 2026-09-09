@@ -152,6 +152,9 @@ namespace NvdaAddonSync
         private const string PendingInstallSuffix = ".pendingInstall";
         private const string DeleteSuffix = ".delete";
         private const int MaximumStateFileBytes = 1024 * 1024;
+        private const int MaximumReportedEvidenceItems = 20;
+        private const int MaximumReportedStateValues = 10;
+        private const int MaximumReportedStateValueCharacters = 160;
 
         public static NvdaAddonTransactionStatus Inspect(string configFolder)
         {
@@ -160,6 +163,8 @@ namespace NvdaAddonSync
                 return NvdaAddonTransactionStatus.Pending("the NVDA configuration folder is not available");
             }
 
+            var evidence = new List<string>();
+            var evidenceCount = 0;
             try
             {
                 var addonsFolder = Path.Combine(configFolder, SyncComponent.Addons.RelativePath);
@@ -169,7 +174,11 @@ namespace NvdaAddonSync
                     {
                         if (IsTransientAddonPath(entry))
                         {
-                            return NvdaAddonTransactionStatus.Pending("NVDA has a staged add-on folder awaiting startup completion");
+                            var entryName = Path.GetFileName(entry);
+                            AddEvidence(
+                                evidence,
+                                ref evidenceCount,
+                                "staged path \"" + entry + "\" (add-on \"" + GetAddonName(entryName) + "\")");
                         }
                     }
                 }
@@ -177,13 +186,16 @@ namespace NvdaAddonSync
                 var stateFile = Path.Combine(configFolder, "addonsState.json");
                 if (!File.Exists(stateFile))
                 {
-                    return NvdaAddonTransactionStatus.Clear();
+                    return CreateStatus(configFolder, evidence, evidenceCount);
                 }
 
                 var stateInfo = new FileInfo(stateFile);
                 if (stateInfo.Length > MaximumStateFileBytes)
                 {
-                    return NvdaAddonTransactionStatus.Pending("NVDA's add-on state file is unexpectedly large");
+                    return NvdaAddonTransactionStatus.Pending(
+                        "NVDA add-on transaction state could not be verified in " + configFolder
+                        + ": \"" + stateFile + "\" is " + stateInfo.Length
+                        + " bytes; the safety limit is " + MaximumStateFileBytes + " bytes");
                 }
 
                 string json;
@@ -196,21 +208,139 @@ namespace NvdaAddonSync
                 var values = new JavaScriptSerializer().DeserializeObject(json) as IDictionary<string, object>;
                 if (values == null)
                 {
-                    return NvdaAddonTransactionStatus.Pending("NVDA's add-on state file is changing or unreadable");
+                    return NvdaAddonTransactionStatus.Pending(
+                        "NVDA add-on transaction state could not be verified in " + configFolder
+                        + ": \"" + stateFile + "\" does not contain a JSON object");
                 }
                 foreach (var entry in values)
                 {
                     if (IsPendingInstallOrRemoveKey(entry.Key) && HasValues(entry.Value))
                     {
-                        return NvdaAddonTransactionStatus.Pending("NVDA reports an add-on installation or removal awaiting restart");
+                        AddEvidence(
+                            evidence,
+                            ref evidenceCount,
+                            "\"" + stateFile + "\" key \"" + entry.Key + "\": " + DescribeStateValue(entry.Value));
                     }
                 }
-                return NvdaAddonTransactionStatus.Clear();
+                return CreateStatus(configFolder, evidence, evidenceCount);
             }
             catch (Exception ex)
             {
-                return NvdaAddonTransactionStatus.Pending("NVDA's add-on transaction state could not be verified: " + ex.Message);
+                AddEvidence(
+                    evidence,
+                    ref evidenceCount,
+                    "transaction state could not be fully read: " + ex.GetType().Name + ": " + LimitStateText(ex.Message));
+                return CreateStatus(configFolder, evidence, evidenceCount);
             }
+        }
+
+        private static NvdaAddonTransactionStatus CreateStatus(string configFolder, List<string> evidence, int evidenceCount)
+        {
+            if (evidenceCount == 0)
+            {
+                return NvdaAddonTransactionStatus.Clear();
+            }
+            var reason = "NVDA add-on work is pending in " + configFolder + ": " + string.Join("; ", evidence.ToArray());
+            if (evidenceCount > evidence.Count)
+            {
+                reason += "; plus " + (evidenceCount - evidence.Count) + " more item(s)";
+            }
+            return NvdaAddonTransactionStatus.Pending(reason);
+        }
+
+        private static void AddEvidence(List<string> evidence, ref int evidenceCount, string item)
+        {
+            evidenceCount++;
+            if (evidence.Count < MaximumReportedEvidenceItems)
+            {
+                evidence.Add(item);
+            }
+        }
+
+        private static string GetAddonName(string entryName)
+        {
+            foreach (var suffix in new[] { PendingInstallSuffix, DeleteSuffix })
+            {
+                if (entryName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return entryName.Substring(0, entryName.Length - suffix.Length);
+                }
+            }
+            return entryName;
+        }
+
+        private static string DescribeStateValue(object value)
+        {
+            var values = new List<string>();
+            CollectStateValues(value, values);
+            if (values.Count == 0)
+            {
+                return "a non-empty value whose add-on name could not be read";
+            }
+            var result = string.Join(", ", values.ToArray());
+            if (CountStateValues(value) > values.Count)
+            {
+                result += ", plus more";
+            }
+            return result;
+        }
+
+        private static void CollectStateValues(object value, List<string> values)
+        {
+            if (value == null || values.Count >= MaximumReportedStateValues)
+            {
+                return;
+            }
+            var text = value as string;
+            if (text != null)
+            {
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    values.Add("\"" + LimitStateText(text) + "\"");
+                }
+                return;
+            }
+            var dictionary = value as IDictionary;
+            if (dictionary != null)
+            {
+                foreach (DictionaryEntry entry in dictionary)
+                {
+                    if (values.Count >= MaximumReportedStateValues)
+                    {
+                        break;
+                    }
+                    values.Add("\"" + LimitStateText(Convert.ToString(entry.Key)) + "\"");
+                }
+                return;
+            }
+            var enumerable = value as IEnumerable;
+            if (enumerable != null)
+            {
+                foreach (var item in enumerable)
+                {
+                    CollectStateValues(item, values);
+                    if (values.Count >= MaximumReportedStateValues)
+                    {
+                        break;
+                    }
+                }
+                return;
+            }
+            values.Add("\"" + LimitStateText(Convert.ToString(value)) + "\"");
+        }
+
+        private static string LimitStateText(string value)
+        {
+            var text = (value ?? string.Empty).Replace("\r", " ").Replace("\n", " ");
+            return text.Length <= MaximumReportedStateValueCharacters
+                ? text
+                : text.Substring(0, MaximumReportedStateValueCharacters) + "...";
+        }
+
+        private static int CountStateValues(object value)
+        {
+            var collection = value as ICollection;
+            return collection == null ? 1 : collection.Count;
         }
 
         public static bool IsTransientAddonPath(string path)
@@ -485,7 +615,14 @@ namespace NvdaAddonSync
                 if (primaryState.IsPending || targetState.IsPending)
                 {
                     result.ComponentsDeferred++;
-                    Log("Deferred Add-ons: " + (primaryState.IsPending ? primaryState.Reason : targetState.Reason) + ".");
+                    if (primaryState.IsPending)
+                    {
+                        Log("Deferred Add-ons from the primary folder: " + primaryState.Reason + ".");
+                    }
+                    if (targetState.IsPending)
+                    {
+                        Log("Deferred Add-ons for the secondary folder " + targetFolder + ": " + targetState.Reason + ".");
+                    }
                     hasAddonChanges = false;
                 }
             }
@@ -735,17 +872,18 @@ namespace NvdaAddonSync
             if (component == SyncComponent.Addons)
             {
                 var primaryState = NvdaAddonTransactionGuard.Inspect(primaryFolder);
+                var targetState = NvdaAddonTransactionGuard.Inspect(targetFolder);
                 if (primaryState.IsPending)
                 {
-                    result.ComponentsDeferred++;
-                    Log("Deferred Add-ons: " + primaryState.Reason + ".");
-                    return;
+                    Log("Deferred Add-ons from the primary folder: " + primaryState.Reason + ".");
                 }
-                var targetState = NvdaAddonTransactionGuard.Inspect(targetFolder);
                 if (targetState.IsPending)
                 {
+                    Log("Deferred Add-ons for the secondary folder " + targetFolder + ": " + targetState.Reason + ".");
+                }
+                if (primaryState.IsPending || targetState.IsPending)
+                {
                     result.ComponentsDeferred++;
-                    Log("Deferred Add-ons for " + targetFolder + ": " + targetState.Reason + ".");
                     return;
                 }
             }
