@@ -259,6 +259,8 @@ namespace NvdaAddonSync
             var addonsMenu = new ToolStripMenuItem("&Add-ons");
             addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Export add-on pack...", null, delegate { ExportAddonPack(); }));
             addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Install local add-ons to secondary folders...", null, delegate { InstallLocalAddons(); }));
+            addonsMenu.DropDownItems.Add(new ToolStripSeparator());
+            addonsMenu.DropDownItems.Add(new ToolStripMenuItem("&Review pending add-on work...", null, delegate { OpenPendingAddonWork(); }));
 
             var optionsMenu = new ToolStripMenuItem("&Options");
             var preferencesItem = new ToolStripMenuItem("&Preferences...", null, delegate { OpenPreferences(); });
@@ -1171,6 +1173,14 @@ namespace NvdaAddonSync
         private void OpenSpeechDictionaryManager()
         {
             using (var dialog = new SpeechDictionaryManagerForm(settings, GetPrimaryFolder()))
+            {
+                dialog.ShowDialog(this);
+            }
+        }
+
+        private void OpenPendingAddonWork()
+        {
+            using (var dialog = new PendingAddonWorkForm(settings, GetPrimaryFolder()))
             {
                 dialog.ShowDialog(this);
             }

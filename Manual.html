@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.5.4.</p>
+	<p>Current version: 1.5.5.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
@@ -28,6 +28,7 @@
 		<li><a href="#ini-section-cleanup">INI Section Cleanup</a></li>
 		<li><a href="#dictionary-entries">Speech Dictionary Entries</a></li>
 		<li><a href="#addon-packs">Add-on Packs and Local Installs</a></li>
+		<li><a href="#pending-addon-work">Pending Add-on Work</a></li>
 		<li><a href="#sync-behaviour">Sync Behaviour</a></li>
 		<li><a href="#folder-selection">Folder Selection</a></li>
 		<li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
@@ -54,7 +55,7 @@
 		</thead>
 		<tbody>
 			<tr><td>Folders</td><td>Set or detect the primary folder, add a secondary folder, edit the selected secondary folder, open properties for the selected secondary folder, remove the selected secondary folder, validate the current configuration, clean up orphaned INI sections in <code>nvda.ini</code> or <code>gestures.ini</code>, and manage speech dictionary entries.</td></tr>
-			<tr><td>Add-ons</td><td>Export an add-on pack from the primary folder, or install local add-ons into configured secondary folders.</td></tr>
+			<tr><td>Add-ons</td><td>Export an add-on pack from the primary folder, install local add-ons into configured secondary folders, or review pending add-on work that is blocking synchronization.</td></tr>
 			<tr><td>Options</td><td>Open Preferences, save the visible log, minimise to the notification area, and exit.</td></tr>
 			<tr><td>Help</td><td>Open this manual, check for updates, open the GitHub project page, contact Andre, donate, and show About.</td></tr>
 		</tbody>
@@ -183,6 +184,12 @@
 	<p>Local add-on install is intended for portable or otherwise offline NVDA folders. It does not download add-ons, contact the NVDA Add-on Store, or install into a running NVDA profile.</p>
 	<p>When Python cache exclusion is enabled in Preferences, local installs also skip <code>__pycache__</code>, <code>.pyc</code>, and <code>.pyo</code> files while copying unpacked add-on folders.</p>
 
+	<h2 id="pending-addon-work">Pending Add-on Work</h2>
+	<p>Use <strong>Add-ons &gt; Review pending add-on work</strong> when synchronization reports that an add-on installation or removal is waiting. Choose the primary folder, a configured secondary folder, or browse to another NVDA folder. The list names every relevant transaction path and pending entry found in <code>addonsState.json</code>.</p>
+	<p>Items marked <strong>restart required</strong> still have an installed add-on or a matching <code>.pendingInstall</code> or <code>.delete</code> path. Restart that particular NVDA copy so NVDA can finish its own work. NVDA Sync does not delete these files or cancel genuine pending installations and removals.</p>
+	<p>An item is marked <strong>stale removal entry; safe to clear</strong> only when its named add-on is absent from the installed add-on folders and no matching transaction path exists. Choose <strong>Select stale entries</strong>, review the checked items and their details, then choose <strong>Clear selected stale entries</strong>. Before rewriting the state file, NVDA Sync creates a timestamped backup beside it named like <code>addonsState20260910-120000.json</code>. Unrelated state entries and unfamiliar structures are preserved; malformed or uncertain data is never repaired automatically.</p>
+	<p>If the selected state file belongs to a running NVDA copy, the same guarded close-and-relaunch flow used by the INI and dictionary tools prevents NVDA from restoring stale in-memory data over the repair. The review log records the selected file, each cleared entry, backup path, completion, and any failure.</p>
+
 	<h2 id="sync-behaviour">Sync Behaviour</h2>
 	<p>The app performs one-way sync only. The primary folder pushes to the configured secondary folders. It does not merge changes back from secondary folders.</p>
 	<p>Files that are missing or different in a secondary folder are copied from the primary folder. File replacement is staged through a temporary file before the destination is replaced.</p>
@@ -294,6 +301,12 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+
+	<h3>1.5.5</h3>
+	<ul>
+		<li>Added a pending add-on work review tool which explains the state blocking synchronization and distinguishes genuine work requiring restart from removal entries proven stale.</li>
+		<li>Added guarded repair for stale removal entries, with explicit selection, confirmation, timestamped backup, preservation of unrelated state, and detailed logging.</li>
+	</ul>
 
 	<h3>1.5.4</h3>
 	<ul>
