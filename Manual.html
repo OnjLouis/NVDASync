@@ -13,7 +13,7 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.6.0.</p>
+	<p>Current version: 1.6.1.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
 	<p>Keep the complete NVDA Sync folder in a location your Windows account can write to, such as <code>%LOCALAPPDATA%\Programs\NVDASync</code>, Documents, or a portable drive. Do not place this portable build under <code>Program Files</code>. Its settings remain beside the app and its signed updater replaces files in the same folder, so normal use requires a writable location rather than administrator privileges.</p>
@@ -90,7 +90,7 @@
 			<tr><td><code>secondary-unavailable.wav</code></td><td>A configured secondary folder has become unavailable.</td></tr>
 		</tbody>
 	</table>
-	<p>Factory sounds are in the <code>sounds</code> folder beside the app. To replace one or more sounds, create <code>Settings\sounds</code> and place WAV files there using the same filenames. Each available custom file overrides its factory counterpart; missing custom files continue to use the bundled sounds.</p>
+	<p>Factory sounds are embedded in the app and restored to the <code>sounds</code> folder when needed. To replace one or more sounds, create <code>Settings\sounds</code> and place WAV files there using the same filenames. Each available custom file overrides its factory counterpart; missing custom files continue to use the factory sounds.</p>
 	<p>The unavailable sound plays when a secondary folder first changes to unavailable. It is not repeated during every retry while that folder remains disconnected. If the folder returns and later becomes unavailable again, the sound can play again.</p>
 
 	<h2 id="components">Sync Components</h2>
@@ -324,6 +324,11 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+	<h3>1.6.1</h3>
+	<ul>
+		<li>Fixed automatic updates from 1.5.5 failing when the signed 1.6.0 package introduced the factory sounds folder.</li>
+		<li>Embedded the three factory sounds in the app so signed updater packages remain compatible with older versions. Missing or outdated factory sound files are restored automatically, while files in <code>Settings\sounds</code> remain untouched.</li>
+	</ul>
 	<h3>1.6.0</h3>
 	<ul>
 		<li>Added optional sounds for synchronization starting, synchronization finishing, and a secondary folder becoming unavailable. Unavailable-folder feedback plays on the state change instead of every retry.</li>

@@ -9,6 +9,13 @@ namespace NvdaAddonSync
         internal const string SyncStartedFileName = "sync-start.wav";
         internal const string SyncCompletedFileName = "sync-complete.wav";
         internal const string SecondaryUnavailableFileName = "secondary-unavailable.wav";
+        private const string EmbeddedSoundResourcePrefix = "NvdaAddonSync.Sounds.";
+        private static readonly string[] FactorySoundFileNames =
+        {
+            SyncStartedFileName,
+            SyncCompletedFileName,
+            SecondaryUnavailableFileName
+        };
 
         private readonly string bundledSoundDirectory;
         private readonly string userSoundDirectory;
@@ -20,6 +27,7 @@ namespace NvdaAddonSync
         {
             bundledSoundDirectory = Path.Combine(appDirectory, "sounds");
             userSoundDirectory = Path.Combine(settingsDirectory, "sounds");
+            EnsureBundledSounds(appDirectory);
         }
 
         public void SyncStarted(bool enabled)
@@ -44,15 +52,14 @@ namespace NvdaAddonSync
                 return;
             }
 
-            var path = PreferredSoundPath(fileName);
-            if (!File.Exists(path))
-            {
-                return;
-            }
-
             try
             {
-                var data = File.ReadAllBytes(path);
+                var data = LoadSoundData(fileName);
+                if (data == null)
+                {
+                    return;
+                }
+
                 lock (sync)
                 {
                     DisposePlayer();
@@ -67,10 +74,82 @@ namespace NvdaAddonSync
             }
         }
 
-        private string PreferredSoundPath(string fileName)
+        private byte[] LoadSoundData(string fileName)
         {
             var userPath = Path.Combine(userSoundDirectory, fileName);
-            return File.Exists(userPath) ? userPath : Path.Combine(bundledSoundDirectory, fileName);
+            if (File.Exists(userPath))
+            {
+                return File.ReadAllBytes(userPath);
+            }
+
+            var bundledPath = Path.Combine(bundledSoundDirectory, fileName);
+            if (File.Exists(bundledPath))
+            {
+                return File.ReadAllBytes(bundledPath);
+            }
+
+            return ReadEmbeddedSound(fileName);
+        }
+
+        internal static void EnsureBundledSounds(string appDirectory)
+        {
+            var directory = Path.Combine(appDirectory, "sounds");
+            foreach (var fileName in FactorySoundFileNames)
+            {
+                try
+                {
+                    var data = ReadEmbeddedSound(fileName);
+                    if (data == null)
+                    {
+                        continue;
+                    }
+
+                    Directory.CreateDirectory(directory);
+                    var path = Path.Combine(directory, fileName);
+                    if (!File.Exists(path) || !FileMatches(path, data))
+                    {
+                        File.WriteAllBytes(path, data);
+                    }
+                }
+                catch
+                {
+                    // Embedded fallback still allows sounds in read-only app folders.
+                }
+            }
+        }
+
+        private static byte[] ReadEmbeddedSound(string fileName)
+        {
+            using (var resource = typeof(SoundService).Assembly.GetManifestResourceStream(EmbeddedSoundResourcePrefix + fileName))
+            {
+                if (resource == null)
+                {
+                    return null;
+                }
+
+                using (var buffer = new MemoryStream())
+                {
+                    resource.CopyTo(buffer);
+                    return buffer.ToArray();
+                }
+            }
+        }
+
+        private static bool FileMatches(string path, byte[] expected)
+        {
+            var actual = File.ReadAllBytes(path);
+            if (actual.Length != expected.Length)
+            {
+                return false;
+            }
+            for (var index = 0; index < actual.Length; index++)
+            {
+                if (actual[index] != expected[index])
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private void DisposePlayer()

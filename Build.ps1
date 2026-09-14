@@ -27,7 +27,10 @@ if (Test-Path -LiteralPath $OutputRoot) {
 New-Item -ItemType Directory -Path $portable -Force | Out-Null
 
 $sources = Get-ChildItem -LiteralPath $src -Filter '*.cs' | ForEach-Object FullName
-& $compiler /nologo /target:winexe /optimize+ "/out:$exe" /reference:System.dll /reference:System.Core.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Runtime.Serialization.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $sources
+$soundResourceArguments = Get-ChildItem -LiteralPath (Join-Path $root 'Assets\sounds') -Filter '*.wav' | ForEach-Object {
+	"/resource:$($_.FullName),NvdaAddonSync.Sounds.$($_.Name)"
+}
+& $compiler /nologo /target:winexe /optimize+ "/out:$exe" /reference:System.dll /reference:System.Core.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Runtime.Serialization.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll $soundResourceArguments $sources
 if ($LASTEXITCODE -ne 0) {
 	throw 'Build failed.'
 }
@@ -41,7 +44,14 @@ Copy-Item -LiteralPath (Join-Path $root 'Assets\sounds') -Destination (Join-Path
 URL=https://github.com/OnjLouis/NVDASync/releases/latest
 "@ | Set-Content -LiteralPath (Join-Path $portable 'Get latest NVDA Sync.url') -Encoding ASCII
 
-Get-ChildItem -LiteralPath $portable | Compress-Archive -DestinationPath $archive -CompressionLevel Optimal
+$updateFiles = @(
+	$exe,
+	$legacyExe,
+	(Join-Path $portable 'Manual.html'),
+	(Join-Path $portable 'LICENSE.txt'),
+	(Join-Path $portable 'Get latest NVDA Sync.url')
+)
+Compress-Archive -LiteralPath $updateFiles -DestinationPath $archive -CompressionLevel Optimal
 if ($SigningKeyPath) {
 	if (-not (Test-Path -LiteralPath $SigningKeyPath -PathType Leaf)) {
 		throw "Signing key not found: $SigningKeyPath"

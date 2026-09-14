@@ -31,7 +31,7 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Pending add-on work review explains the exact `addonsState.json` entries and transaction paths blocking synchronization. It can clear only removal entries proven stale, backs up the state file first, and preserves genuine or uncertain pending operations.
 - Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, an unavailable-folder retry interval, Windows startup, start-minimized behavior, update checks, optional status sounds, and optional global hotkeys for show/hide and automatic-sync control.
-- Bundled status sounds live in `sounds`. A matching WAV file in `Settings\sounds` overrides an individual bundled sound without changing the others.
+- Factory status sounds are embedded in the app and restored to `sounds` when needed. A matching WAV file in `Settings\sounds` overrides an individual factory sound without changing the others.
 - Optional stale-item deletion makes selected secondary components match the primary exactly. Existing-add-ons-only mode updates matching add-ons without adding new ones or removing target-only add-ons.
 - NVDA's add-on transaction state and temporary `.pendingInstall` or `.delete` paths are installation-local and are never copied between NVDA folders. A pending transaction defers only Add-ons while other selected components continue, and the log names the affected folder, add-ons, markers, and state entries.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
@@ -86,4 +86,4 @@ Run:
 powershell -ExecutionPolicy Bypass -File .\Build.ps1
 ```
 
-The portable app and `NVDASync.zip` package are written beneath the selected output folder. Release builds pass a private RSA key to `-SigningKeyPath`; the private key is never stored in the repository or package.
+The portable app and the flat, backward-compatible `NVDASync.zip` updater package are written beneath the selected output folder. Release builds pass a private RSA key to `-SigningKeyPath`; the private key is never stored in the repository or package.

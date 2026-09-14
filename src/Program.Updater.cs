@@ -107,8 +107,7 @@ namespace NvdaAddonSync
                 var stagedSounds = Path.Combine(source, "sounds");
                 if (stagedFiles.Any(path => !allowedFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)) ||
                     stagedDirectories.Any(path => !string.Equals(path, stagedSounds, StringComparison.OrdinalIgnoreCase)) ||
-                    !Directory.Exists(stagedSounds) ||
-                    Directory.GetDirectories(stagedSounds, "*", SearchOption.AllDirectories).Length != 0)
+                    (Directory.Exists(stagedSounds) && Directory.GetDirectories(stagedSounds, "*", SearchOption.AllDirectories).Length != 0))
                 {
                     throw new InvalidOperationException("The signed update contains unexpected files or folders.");
                 }
@@ -116,9 +115,12 @@ namespace NvdaAddonSync
                 {
                     throw new InvalidOperationException("The signed update is incomplete.");
                 }
-                var stagedSoundFiles = Directory.GetFiles(stagedSounds, "*", SearchOption.TopDirectoryOnly);
-                if (stagedSoundFiles.Any(path => !requiredSoundFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)) ||
-                    !requiredSoundFiles.All(name => File.Exists(Path.Combine(stagedSounds, name))))
+                var stagedSoundFiles = Directory.Exists(stagedSounds)
+                    ? Directory.GetFiles(stagedSounds, "*", SearchOption.TopDirectoryOnly)
+                    : new string[0];
+                if (Directory.Exists(stagedSounds) &&
+                    (stagedSoundFiles.Any(path => !requiredSoundFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)) ||
+                    !requiredSoundFiles.All(name => File.Exists(Path.Combine(stagedSounds, name)))))
                 {
                     throw new InvalidOperationException("The signed update contains unexpected or incomplete sound files.");
                 }
@@ -156,6 +158,7 @@ namespace NvdaAddonSync
                         Directory.CreateDirectory(Path.GetDirectoryName(destination));
                         CopyFileWithRetry(item.Value, destination);
                     }
+                    SoundService.EnsureBundledSounds(targetDir);
                 }
                 catch
                 {
