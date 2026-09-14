@@ -1357,6 +1357,10 @@ namespace NvdaAddonSync
         private static bool ShouldIgnore(string path, SyncOptions options)
         {
             var name = Path.GetFileName(path);
+            if (IsTransientTransferPath(path) || IsTransientAddonDownloadPath(path))
+            {
+                return true;
+            }
             if (IsTransientBrowserProfileFile(path))
             {
                 return true;
@@ -1383,8 +1387,82 @@ namespace NvdaAddonSync
 
         private static bool ShouldIgnoreDirectory(string path, SyncOptions options)
         {
-            return (options.ExcludePythonCache && ContainsPathSegment(path, "__pycache__"))
+            return IsTransientTransferPath(path)
+                || IsTransientAddonDownloadPath(path)
+                || (options.ExcludePythonCache && ContainsPathSegment(path, "__pycache__"))
                 || IsTransientBrowserProfileDirectory(path);
+        }
+
+        private static bool IsTransientTransferPath(string path)
+        {
+            var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            foreach (var part in parts)
+            {
+                if (part.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+                    || part.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)
+                    || part.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                    || part.EndsWith(".crdownload", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsTransientAddonDownloadPath(string path)
+        {
+            var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            for (var index = 0; index + 1 < parts.Length; index++)
+            {
+                var child = parts[index + 1];
+                if (string.Equals(parts[index], "samsungGalaxyVoices", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (child.StartsWith("voice-", StringComparison.OrdinalIgnoreCase)
+                        || (string.Equals(child, "voices", StringComparison.OrdinalIgnoreCase)
+                            && ContainsSuffixAfter(parts, index + 2, ".old")))
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if (!string.Equals(parts[index], "samsungTVVoices", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (child.StartsWith("firmware-", StringComparison.OrdinalIgnoreCase)
+                    || child.StartsWith("runtime-", StringComparison.OrdinalIgnoreCase)
+                    || IsSamsungTvFirmwareArchive(child)
+                    || (string.Equals(child, "packs", StringComparison.OrdinalIgnoreCase)
+                        && ContainsSuffixAfter(parts, index + 2, ".old")))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool ContainsSuffixAfter(string[] parts, int startIndex, string suffix)
+        {
+            for (var index = startIndex; index < parts.Length; index++)
+            {
+                if (parts[index].EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsSamsungTvFirmwareArchive(string name)
+        {
+            if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                && !name.EndsWith(".zip.part", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            return name.StartsWith("T-KTMDEUC-", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("T-KTMAKUC-", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsTransientBrowserProfileFile(string path)

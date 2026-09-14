@@ -8,13 +8,14 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 
 - One primary folder pushes to up to five secondary folders, with optional per-folder overrides.
 - Settings are stored beside the app in `Settings\settings.json`.
+- Keep the complete NVDA Sync folder in a location your Windows account can write to, such as `%LOCALAPPDATA%\Programs\NVDASync`, Documents, or a portable drive. Do not place this portable build under `Program Files`; normal use and signed updates do not require administrator privileges.
 - Folder pickers accept an NVDA folder, portable NVDA folder, NVDA configuration folder, or known component folder.
 - The primary folder is shown read-only and can be chosen with Browse or found with Detect.
 - Supported components are add-ons, input gestures through `gestures.ini`, `nvda.ini`, speech dictionaries, configuration profiles with `profileTriggers.ini`, other root configuration files, other root configuration folders, and optional portable NVDA program-file updates.
 - Add-ons are selected by default; add-on sync can copy all add-ons, update only add-ons already present in a secondary, or be disabled per target. Potentially machine-specific configuration is opt-in.
 - Python cache files and log files are excluded by default.
-- Transient Chrome/WebView-style cache and session files created by add-ons are skipped so locked browser-profile files do not create noisy sync failures.
-- Auto-sync watches the primary folder and mirrors only the changed files or renamed folders after the source settles. It ignores excluded logs, Python caches, browser caches, and NVDA's local add-on-store data without scanning unrelated components or updating portable program files. If Windows reports that watcher events were lost during exceptional churn, the app performs one full configuration reconciliation. Add-on installation and removal transactions are deferred until NVDA completes them on restart, so temporary transaction folders are never mirrored or held open. Deferred secondary folders retain their exact queued changes, and temporary copy failures use bounded exact-path retries rather than rescanning the profile.
+- Transient Chrome/WebView-style cache and session files created by add-ons are skipped so locked browser-profile files do not create noisy sync failures. Incomplete `.part`, `.partial`, `.tmp`, and `.crdownload` files are also excluded.
+- Auto-sync watches the primary folder and mirrors only the changed files or renamed folders after the source settles. It ignores excluded logs, Python caches, browser caches, in-progress add-on voice downloads, and NVDA's local add-on-store data without scanning unrelated components or updating portable program files. If Windows reports that watcher events were lost during exceptional churn, the app performs one full configuration reconciliation. Add-on installation and removal transactions are deferred until NVDA completes them on restart, so temporary transaction folders are never mirrored or held open. Completed downloaded voices sync after their installer moves them into the final location. Deferred secondary folders retain their exact queued changes, and temporary copy failures use bounded exact-path retries rather than rescanning the profile.
 - Unavailable removable-drive secondary folders are skipped without interrupting the user. Their return is checked at a configurable interval from 1 to 1440 minutes, defaulting to 60 minutes, and a sync runs only after a folder becomes available again.
 - Manual sync is available from the main window or tray menu.
 - Normal GUI launches are single-instance across NVDA Sync copies: same-folder launches show the running copy, and different-folder launches close the older copy before the new one starts.
@@ -29,7 +30,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - Add-on pack export writes readable JSON metadata for installed add-ons from the primary folder.
 - Local add-on install copies valid unpacked add-on folders and `.nvda-addon` archives into configured secondary folders only.
 - Pending add-on work review explains the exact `addonsState.json` entries and transaction paths blocking synchronization. It can clear only removal entries proven stale, backs up the state file first, and preserves genuine or uncertain pending operations.
-- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, an unavailable-folder retry interval, Windows startup, start-minimized behavior, and update checks.
+- Preferences applies changes live and contains sync component choices, stale deletion, Python cache exclusion, log-file exclusion, optional rolling file logging, auto-sync, an unavailable-folder retry interval, Windows startup, start-minimized behavior, update checks, optional status sounds, and optional global hotkeys for show/hide and automatic-sync control.
+- Bundled status sounds live in `sounds`. A matching WAV file in `Settings\sounds` overrides an individual bundled sound without changing the others.
 - Optional stale-item deletion makes selected secondary components match the primary exactly. Existing-add-ons-only mode updates matching add-ons without adding new ones or removing target-only add-ons.
 - NVDA's add-on transaction state and temporary `.pendingInstall` or `.delete` paths are installation-local and are never copied between NVDA folders. A pending transaction defers only Add-ons while other selected components continue, and the log names the affected folder, add-ons, markers, and state entries.
 - Folder validation prevents syncing a folder into itself or into a child/parent folder. Portable program-file updates compare before writing, create optional ZIP backups beside the portable folder, exclude user content from backups, refuse installed NVDA targets, and refuse portable copies that are currently running.
@@ -44,6 +46,8 @@ The intended use is to keep a main installed NVDA profile and one or more portab
 - `Shift+F1`: check for updates.
 - `Ctrl+F1`: open the GitHub project page.
 - `Ctrl+,`: open Preferences.
+- User-assigned global hotkey: show or hide the main window from any application when enabled.
+- User-assigned global hotkey: turn automatic synchronization on or off without disabling manual Sync now commands.
 - `Alt+D`: detect the primary NVDA folder from likely user-profile locations.
 - `Alt+A`: open the Add-ons menu.
 - `Enter`: open properties for the selected secondary folder.

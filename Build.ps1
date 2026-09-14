@@ -35,6 +35,7 @@ if ($LASTEXITCODE -ne 0) {
 Copy-Item -LiteralPath $exe -Destination $legacyExe
 Copy-Item -LiteralPath (Join-Path $root 'Manual.html') -Destination $portable
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE.txt') -Destination $portable
+Copy-Item -LiteralPath (Join-Path $root 'Assets\sounds') -Destination (Join-Path $portable 'sounds') -Recurse
 @"
 [InternetShortcut]
 URL=https://github.com/OnjLouis/NVDASync/releases/latest

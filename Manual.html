@@ -13,9 +13,10 @@
 </head>
 <body>
 	<h1>NVDA Sync</h1>
-	<p>Current version: 1.5.5.</p>
+	<p>Current version: 1.6.0.</p>
 	<p>NVDA Sync is a portable Windows utility for keeping NVDA folders aligned. Choose one primary NVDA folder and up to five secondary folders. The primary folder is the source of truth; selected components are copied from it to each secondary.</p>
 	<p>The intended use is to keep an installed NVDA profile and one or more portable NVDA copies in step without manually copying add-ons, gestures, dictionaries, profiles, or other configuration files after every update.</p>
+	<p>Keep the complete NVDA Sync folder in a location your Windows account can write to, such as <code>%LOCALAPPDATA%\Programs\NVDASync</code>, Documents, or a portable drive. Do not place this portable build under <code>Program Files</code>. Its settings remain beside the app and its signed updater replaces files in the same folder, so normal use requires a writable location rather than administrator privileges.</p>
 	<p>Project page: <a href="https://github.com/OnjLouis/NVDASync">https://github.com/OnjLouis/NVDASync</a>.</p>
 
 	<h2>Contents</h2>
@@ -23,6 +24,7 @@
 		<li><a href="#typical-use">Typical Use</a></li>
 		<li><a href="#menus">Menus</a></li>
 		<li><a href="#preferences">Preferences</a></li>
+		<li><a href="#sounds-hotkey">Sounds and Global Hotkeys</a></li>
 		<li><a href="#components">Sync Components</a></li>
 		<li><a href="#secondary-properties">Secondary Folder Properties</a></li>
 		<li><a href="#ini-section-cleanup">INI Section Cleanup</a></li>
@@ -72,8 +74,24 @@
 			<tr><td>Sync</td><td>Choose which NVDA components are synced, choose the default add-on mode, choose whether portable NVDA program files are updated, choose whether program updates create ZIP backups, enable or disable primary-folder watching, set the unavailable-folder retry interval in minutes, and choose whether stale items are deleted from secondary folders.</td></tr>
 			<tr><td>Files</td><td>Choose whether Python cache files and log files are excluded, and whether NVDA Sync writes a rolling log file beside the app. Cache and log-file exclusion are on by default; rolling file logging is off by default.</td></tr>
 			<tr><td>Startup and updates</td><td>Choose whether NVDA Sync runs when Windows starts, whether it starts minimised to the notification area, how often it checks GitHub releases, and whether automatic checks may install updates silently when possible.</td></tr>
+			<tr><td>Sounds and hotkeys</td><td>Enable optional synchronization status sounds and global shortcuts for showing or hiding the main window and turning automatic synchronization on or off.</td></tr>
 		</tbody>
 	</table>
+
+	<h2 id="sounds-hotkey">Sounds and Global Hotkeys</h2>
+	<p>Status sounds and both global hotkeys are disabled by default. Enable each feature independently under <strong>Preferences &gt; Sounds and hotkeys</strong>.</p>
+	<p>The show/hide hotkey displays or hides the main window. The automatic-sync hotkey turns primary-folder watching on or off; manual <strong>Sync now</strong> commands remain available while watching is off. The initial suggestions are <kbd>Ctrl+Alt+Shift+N</kbd> for show/hide and <kbd>Ctrl+Alt+Shift+S</kbd> for automatic sync, but neither shortcut is registered until its option is enabled.</p>
+	<p>Two modifiers are safest. For compatibility with Clipman-style shortcuts, one modifier is allowed only with F1 through F24, Grave, or Backslash. NVDA Sync warns before saving an allowed single-modifier shortcut unless that warning is turned off. Press Delete or Backspace in either hotkey field to clear and disable it. The two actions cannot use the same shortcut. If Windows or another application already owns a chosen shortcut, NVDA Sync leaves it unregistered and records that result in the log.</p>
+	<table>
+		<thead><tr><th>Sound file</th><th>Event</th></tr></thead>
+		<tbody>
+			<tr><td><code>sync-start.wav</code></td><td>A synchronization operation has started.</td></tr>
+			<tr><td><code>sync-complete.wav</code></td><td>A synchronization operation has finished.</td></tr>
+			<tr><td><code>secondary-unavailable.wav</code></td><td>A configured secondary folder has become unavailable.</td></tr>
+		</tbody>
+	</table>
+	<p>Factory sounds are in the <code>sounds</code> folder beside the app. To replace one or more sounds, create <code>Settings\sounds</code> and place WAV files there using the same filenames. Each available custom file overrides its factory counterpart; missing custom files continue to use the bundled sounds.</p>
+	<p>The unavailable sound plays when a secondary folder first changes to unavailable. It is not repeated during every retry while that folder remains disconnected. If the folder returns and later becomes unavailable again, the sound can play again.</p>
 
 	<h2 id="components">Sync Components</h2>
 	<table>
@@ -197,11 +215,12 @@
 	<p><strong>Exclude Python cache files</strong> is enabled by default. This skips <code>__pycache__</code> folders, <code>.pyc</code> files, and <code>.pyo</code> files while copying. When stale deletion is enabled, existing Python cache files in secondary folders are removed. NVDA and add-ons can rebuild those files when needed, and excluding them avoids wasting space on removable drives with large cluster sizes.</p>
 	<p><strong>Exclude log files</strong> is also enabled by default. This skips <code>.log</code> files during user-configuration sync and removes stale copied logs when stale deletion is enabled. Logs are normally machine-local support files, so syncing them between NVDA copies is rarely useful.</p>
 	<p>NVDA Sync also skips transient browser-profile cache and session files created by add-ons that embed Chrome or WebView-style data. These files are often locked while NVDA is running and are normally rebuilt by the add-on, so they are treated like cache rather than reported as sync errors.</p>
+	<p>Incomplete files ending in <code>.part</code>, <code>.partial</code>, <code>.tmp</code>, or <code>.crdownload</code> are never synced. NVDA Sync also recognizes the temporary download and extraction workspaces used by Samsung Galaxy Voices and Samsung TV Voices. An in-progress voice or firmware package is left local while it changes; the completed installed voice data syncs after the add-on moves it into its final location.</p>
 	<p><strong>Write rolling log file</strong> is off by default. The visible log in the main window still works during each run. Enable file logging only when you want a persistent <code>Logs\NVDASync.log</code> for troubleshooting, or use <strong>Options &gt; Save log</strong> to save the visible log manually.</p>
-	<p>Auto-sync uses file-system change events from the primary folder and waits at least 1.5 seconds after the last change before syncing. An automatic pass mirrors only the changed files or renamed folders for each secondary folder's enabled components; it does not rescan unrelated add-ons, voices, or other configuration trees. Excluded logs, Python caches, transient browser-profile data, and NVDA's local add-on-store data do not trigger target access. If Windows reports that watcher events were lost during exceptional churn, NVDA Sync records the problem and performs one full configuration reconciliation after the source settles. Portable NVDA program-file updates remain a deliberate manual sync operation.</p>
+	<p>Auto-sync uses file-system change events from the primary folder and waits at least 1.5 seconds after the last change before syncing. An automatic pass mirrors only the changed files or renamed folders for each secondary folder's enabled components; it does not rescan unrelated add-ons, voices, or other configuration trees. Excluded logs, Python caches, incomplete downloads, transient browser-profile data, and NVDA's local add-on-store data do not trigger target access. If Windows reports that watcher events were lost during exceptional churn, NVDA Sync records the problem and performs one full configuration reconciliation after the source settles. Portable NVDA program-file updates remain a deliberate manual sync operation.</p>
 	<p>If NVDA is installing, replacing, or removing an add-on, NVDA Sync waits for NVDA to complete that work during restart and then allows another settle period. It does not copy <code>.pendingInstall</code> or <code>.delete</code> transaction paths, and it does not copy <code>addonsState.json</code> or older add-on state files between NVDA installations. If a secondary NVDA copy is completing its own add-on update, its exact queued changes are retained and retried without rescanning other secondary folders. Temporary copy failures also receive a limited series of exact-path retries with increasing delays.</p>
 	<p>Unfinished NVDA add-on work defers only the Add-ons component. Every other selected component continues to sync, including dictionaries, INI files, profiles, other configuration data, and manually requested portable program files. The log identifies the affected NVDA folder and lists the staged add-on names, transaction paths, or pending values found in <code>addonsState.json</code>. A secondary which is completing its own add-on transaction is left untouched until that add-on work finishes. Other source changes detected during a running sync are queued for a new settled comparison afterward. Sync work runs in the background so the window and assistive technology remain responsive while larger folders are being mirrored. Use <strong>Cancel sync</strong> if you need to stop the current run.</p>
-	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, NVDA Sync checks whether unavailable folders have returned at the interval set in Preferences. The interval accepts 1 to 1440 minutes and defaults to 60 minutes. A check does not run a full sync while a folder remains unavailable; syncing begins after the folder returns.</p>
+	<p>If a secondary folder is on a removable drive that is not currently connected, the app skips that folder without showing a disruptive error. While auto-sync is enabled, NVDA Sync checks whether unavailable folders have returned at the interval set in Preferences. The interval accepts 1 to 1440 minutes and defaults to 60 minutes. A check does not run a full sync while a folder remains unavailable; syncing begins after the folder returns. Optional status sounds can report the initial unavailable state without repeating on every retry.</p>
 	<p>The notification area tooltip reports the current state, such as ready, watching, syncing, waiting for a drive, or finished with errors.</p>
 	<p>The app refuses to sync when the primary and secondary are the same folder, or when one folder contains the other.</p>
 
@@ -239,10 +258,12 @@
 			<tr><td>Open this manual.</td><td>F1</td><td>Main window</td></tr>
 			<tr><td>Check GitHub releases for updates.</td><td>Shift+F1</td><td>Main window</td></tr>
 			<tr><td>Open the GitHub project page.</td><td>Ctrl+F1</td><td>Main window</td></tr>
-			<tr><td>Switch Preferences tabs.</td><td>Ctrl+1 through Ctrl+3</td><td>Preferences</td></tr>
+			<tr><td>Switch Preferences tabs.</td><td>Ctrl+1 through Ctrl+4</td><td>Preferences</td></tr>
 			<tr><td>Hide the app to the notification area.</td><td>Escape</td><td>Main window</td></tr>
 			<tr><td>Exit the app.</td><td>Alt+F4</td><td>Main window</td></tr>
 			<tr><td>Show the app from the notification area.</td><td>Enter on the tray icon, or double-click the tray icon</td><td>Notification area</td></tr>
+			<tr><td>Show or hide the main window.</td><td>User-assigned; disabled by default</td><td>Global</td></tr>
+			<tr><td>Turn automatic synchronization on or off.</td><td>User-assigned; disabled by default</td><td>Global</td></tr>
 		</tbody>
 	</table>
 
@@ -288,6 +309,8 @@
 			<tr><td><code>Manual.html</code></td><td>This manual.</td></tr>
 			<tr><td><code>LICENSE.txt</code></td><td>The application license.</td></tr>
 			<tr><td><code>Settings\settings.json</code></td><td>Settings saved beside the app. Moving the app folder moves its settings with it.</td></tr>
+			<tr><td><code>sounds</code></td><td>Bundled synchronization status sounds.</td></tr>
+			<tr><td><code>Settings\sounds</code></td><td>Optional per-file sound replacements, retained during updates.</td></tr>
 			<tr><td><code>Logs\NVDASync.log</code></td><td>Rolling app log. It is written only when file logging is enabled in Preferences and rotated to <code>NVDASync.old.log</code> when it grows large.</td></tr>
 			<tr><td><code>Logs\Update.log</code></td><td>Updater progress log.</td></tr>
 			<tr><td><code>Logs\Updater.log</code></td><td>Updater error log, created only when an update fails.</td></tr>
@@ -301,6 +324,16 @@
 	<p>When NVDA Sync starts, it also asks Windows to keep the current executable path promoted in the notification area. This helps the tray icon remain available after portable updates or folder moves.</p>
 
 	<h2 id="changelog">Changelog</h2>
+	<h3>1.6.0</h3>
+	<ul>
+		<li>Added optional sounds for synchronization starting, synchronization finishing, and a secondary folder becoming unavailable. Unavailable-folder feedback plays on the state change instead of every retry.</li>
+		<li>Added optional, user-assigned global hotkeys for showing or hiding the main window and turning automatic synchronization on or off. Both are disabled by default, held keys do not repeat, and manual synchronization remains available when automatic synchronization is off.</li>
+		<li>Added Clipman-style shortcut safety rules, conflict checks, and an optional warning before saving a single-modifier global hotkey.</li>
+		<li>Added per-file custom sound overrides under <code>Settings\sounds</code>, with automatic fallback to the bundled sounds. Custom sounds are retained during updates.</li>
+		<li>Stopped incomplete downloads and the temporary voice-installation workspaces used by Samsung Galaxy Voices and Samsung TV Voices from being copied while they are still changing. Completed voice data continues to sync normally.</li>
+		<li>Clarified that the portable app must be kept in a user-writable folder and does not require administrator privileges. Closes Issue <a href="https://github.com/OnjLouis/NVDASync/issues/6">#6</a>.</li>
+		<li>Closes Issue <a href="https://github.com/OnjLouis/NVDASync/issues/7">#7</a>.</li>
+	</ul>
 
 	<h3>1.5.5</h3>
 	<ul>

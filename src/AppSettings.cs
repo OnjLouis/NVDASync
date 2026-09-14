@@ -9,6 +9,8 @@ namespace NvdaAddonSync
     [DataContract]
     internal sealed class AppSettings
     {
+        public const string DefaultShowHideHotkey = "Ctrl+Alt+Shift+N";
+        public const string DefaultToggleSyncHotkey = "Ctrl+Alt+Shift+S";
         public const int DefaultUnavailableSecondaryRetryMinutes = 60;
         public const int MinimumUnavailableSecondaryRetryMinutes = 1;
         public const int MaximumUnavailableSecondaryRetryMinutes = 1440;
@@ -100,6 +102,24 @@ namespace NvdaAddonSync
         [DataMember]
         public bool RunAtStartup { get; set; }
 
+        [DataMember]
+        public bool PlayStatusSounds { get; set; }
+
+        [DataMember]
+        public bool EnableGlobalHotkey { get; set; }
+
+        [DataMember]
+        public string ShowHideHotkey { get; set; }
+
+        [DataMember]
+        public bool WarnBeforeSingleModifierHotkeys { get; set; }
+
+        [DataMember]
+        public bool EnableToggleSyncHotkey { get; set; }
+
+        [DataMember]
+        public string ToggleSyncHotkey { get; set; }
+
         public AppSettings()
         {
             SecondaryFolders = new List<string>();
@@ -122,12 +142,18 @@ namespace NvdaAddonSync
             ExcludePythonCache = true;
             ExcludeLogFiles = true;
             WriteLogFile = false;
-            SettingsVersion = 5;
+            SettingsVersion = 6;
             WindowWidth = 820;
             WindowHeight = 560;
             UpdateCheckFrequency = "Startup";
             InstallUpdatesSilently = false;
             RunAtStartup = false;
+            PlayStatusSounds = false;
+            EnableGlobalHotkey = false;
+            ShowHideHotkey = DefaultShowHideHotkey;
+            WarnBeforeSingleModifierHotkeys = true;
+            EnableToggleSyncHotkey = false;
+            ToggleSyncHotkey = DefaultToggleSyncHotkey;
         }
 
         private static string GetDefaultPrimaryFolder()
@@ -245,7 +271,22 @@ namespace NvdaAddonSync
             {
                 UnavailableSecondaryRetryMinutes = DefaultUnavailableSecondaryRetryMinutes;
             }
-            SettingsVersion = 5;
+            if (loadedSettingsVersion < 6)
+            {
+                PlayStatusSounds = false;
+                EnableGlobalHotkey = false;
+                WarnBeforeSingleModifierHotkeys = true;
+                EnableToggleSyncHotkey = false;
+            }
+            if (string.IsNullOrWhiteSpace(ShowHideHotkey))
+            {
+                ShowHideHotkey = DefaultShowHideHotkey;
+            }
+            if (string.IsNullOrWhiteSpace(ToggleSyncHotkey))
+            {
+                ToggleSyncHotkey = DefaultToggleSyncHotkey;
+            }
+            SettingsVersion = 6;
             if (!SyncAddons
                 && !SyncInputGestures
                 && !SyncNvdaIni

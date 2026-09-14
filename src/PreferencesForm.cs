@@ -23,6 +23,12 @@ namespace NvdaAddonSync
         private readonly CheckBox startMinimizedCheckBox;
         private readonly ComboBox updateCheckFrequencyComboBox;
         private readonly CheckBox installUpdatesSilentlyCheckBox;
+        private readonly CheckBox playStatusSoundsCheckBox;
+        private readonly CheckBox enableGlobalHotkeyCheckBox;
+        private readonly TextBox showHideHotkeyTextBox;
+        private readonly CheckBox warnBeforeSingleModifierHotkeysCheckBox;
+        private readonly CheckBox enableToggleSyncHotkeyCheckBox;
+        private readonly TextBox toggleSyncHotkeyTextBox;
         private bool loading;
 
         public PreferencesForm(AppSettings settings, Action preferencesChanged)
@@ -228,6 +234,96 @@ namespace NvdaAddonSync
             updateNote.Text = "Silent installs only run when a GitHub release contains an NVDA Sync ZIP package. Settings and logs are preserved.";
             startupLayout.Controls.Add(updateNote);
 
+            var notificationsPage = new TabPage("Sounds and hotkeys");
+            tabs.TabPages.Add(notificationsPage);
+
+            var notificationsLayout = new FlowLayoutPanel();
+            notificationsLayout.Dock = DockStyle.Fill;
+            notificationsLayout.FlowDirection = FlowDirection.TopDown;
+            notificationsLayout.Padding = new Padding(8);
+            notificationsLayout.WrapContents = false;
+            notificationsPage.Controls.Add(notificationsLayout);
+
+            playStatusSoundsCheckBox = new CheckBox();
+            playStatusSoundsCheckBox.Text = "Pla&y status sounds";
+            playStatusSoundsCheckBox.AutoSize = true;
+            playStatusSoundsCheckBox.CheckedChanged += delegate { ApplyNow(); };
+            notificationsLayout.Controls.Add(playStatusSoundsCheckBox);
+
+            enableGlobalHotkeyCheckBox = new CheckBox();
+            enableGlobalHotkeyCheckBox.Text = "Enable &global show/hide hotkey";
+            enableGlobalHotkeyCheckBox.AutoSize = true;
+            enableGlobalHotkeyCheckBox.CheckedChanged += delegate
+            {
+                showHideHotkeyTextBox.Enabled = enableGlobalHotkeyCheckBox.Checked;
+            };
+            notificationsLayout.Controls.Add(enableGlobalHotkeyCheckBox);
+
+            var hotkeyLayout = new FlowLayoutPanel();
+            hotkeyLayout.AutoSize = true;
+            hotkeyLayout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            hotkeyLayout.WrapContents = false;
+            hotkeyLayout.Margin = Padding.Empty;
+            var hotkeyLabel = new Label();
+            hotkeyLabel.AutoSize = true;
+            hotkeyLabel.Text = "Show/hide hot&key:";
+            hotkeyLabel.Margin = new Padding(0, 5, 6, 0);
+            hotkeyLayout.Controls.Add(hotkeyLabel);
+
+            showHideHotkeyTextBox = new TextBox();
+            showHideHotkeyTextBox.Width = 220;
+            showHideHotkeyTextBox.ReadOnly = false;
+            showHideHotkeyTextBox.ShortcutsEnabled = false;
+            showHideHotkeyTextBox.AccessibleName = "Global show or hide hotkey";
+            showHideHotkeyTextBox.AccessibleDescription = "Press a global key combination. Two modifiers are safest. One modifier is allowed only with function keys, Grave, or Backslash. Press Delete or Backspace to clear this hotkey. Modifier-only and unsafe Windows shortcuts are rejected.";
+            showHideHotkeyTextBox.KeyDown += OnHotkeyKeyDown;
+            showHideHotkeyTextBox.KeyPress += delegate(object sender, KeyPressEventArgs e) { e.Handled = true; };
+            hotkeyLayout.Controls.Add(showHideHotkeyTextBox);
+            notificationsLayout.Controls.Add(hotkeyLayout);
+
+            enableToggleSyncHotkeyCheckBox = new CheckBox();
+            enableToggleSyncHotkeyCheckBox.Text = "Enable global &toggle sync hotkey";
+            enableToggleSyncHotkeyCheckBox.AutoSize = true;
+            enableToggleSyncHotkeyCheckBox.CheckedChanged += delegate
+            {
+                toggleSyncHotkeyTextBox.Enabled = enableToggleSyncHotkeyCheckBox.Checked;
+            };
+            notificationsLayout.Controls.Add(enableToggleSyncHotkeyCheckBox);
+
+            var toggleHotkeyLayout = new FlowLayoutPanel();
+            toggleHotkeyLayout.AutoSize = true;
+            toggleHotkeyLayout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            toggleHotkeyLayout.WrapContents = false;
+            toggleHotkeyLayout.Margin = Padding.Empty;
+            var toggleHotkeyLabel = new Label();
+            toggleHotkeyLabel.AutoSize = true;
+            toggleHotkeyLabel.Text = "Toggle sync h&otkey:";
+            toggleHotkeyLabel.Margin = new Padding(0, 5, 6, 0);
+            toggleHotkeyLayout.Controls.Add(toggleHotkeyLabel);
+
+            toggleSyncHotkeyTextBox = new TextBox();
+            toggleSyncHotkeyTextBox.Width = 220;
+            toggleSyncHotkeyTextBox.ReadOnly = false;
+            toggleSyncHotkeyTextBox.ShortcutsEnabled = false;
+            toggleSyncHotkeyTextBox.AccessibleName = "Toggle automatic sync global hotkey";
+            toggleSyncHotkeyTextBox.AccessibleDescription = showHideHotkeyTextBox.AccessibleDescription;
+            toggleSyncHotkeyTextBox.KeyDown += OnHotkeyKeyDown;
+            toggleSyncHotkeyTextBox.KeyPress += delegate(object sender, KeyPressEventArgs e) { e.Handled = true; };
+            toggleHotkeyLayout.Controls.Add(toggleSyncHotkeyTextBox);
+            notificationsLayout.Controls.Add(toggleHotkeyLayout);
+
+            warnBeforeSingleModifierHotkeysCheckBox = new CheckBox();
+            warnBeforeSingleModifierHotkeysCheckBox.Text = "Warn before sa&ving single-modifier global hotkeys";
+            warnBeforeSingleModifierHotkeysCheckBox.AutoSize = true;
+            warnBeforeSingleModifierHotkeysCheckBox.AccessibleDescription = "When checked, NVDA Sync warns before saving an allowed global hotkey that uses only one modifier.";
+            notificationsLayout.Controls.Add(warnBeforeSingleModifierHotkeysCheckBox);
+
+            var soundsNote = new Label();
+            soundsNote.AutoSize = true;
+            soundsNote.MaximumSize = new Size(540, 0);
+            soundsNote.Text = "Custom WAV files in Settings\\sounds override bundled sounds with the same filenames.";
+            notificationsLayout.Controls.Add(soundsNote);
+
             var buttons = new FlowLayoutPanel();
             buttons.Dock = DockStyle.Fill;
             buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -271,6 +367,14 @@ namespace NvdaAddonSync
             startMinimizedCheckBox.Checked = settings.StartMinimized;
             updateCheckFrequencyComboBox.SelectedItem = DisplayUpdateFrequency(settings.UpdateCheckFrequency);
             installUpdatesSilentlyCheckBox.Checked = settings.InstallUpdatesSilently;
+            playStatusSoundsCheckBox.Checked = settings.PlayStatusSounds;
+            enableGlobalHotkeyCheckBox.Checked = settings.EnableGlobalHotkey;
+            showHideHotkeyTextBox.Text = settings.ShowHideHotkey;
+            showHideHotkeyTextBox.Enabled = settings.EnableGlobalHotkey;
+            warnBeforeSingleModifierHotkeysCheckBox.Checked = settings.WarnBeforeSingleModifierHotkeys;
+            enableToggleSyncHotkeyCheckBox.Checked = settings.EnableToggleSyncHotkey;
+            toggleSyncHotkeyTextBox.Text = settings.ToggleSyncHotkey;
+            toggleSyncHotkeyTextBox.Enabled = settings.EnableToggleSyncHotkey;
             if (settings.LastPreferencesTab >= 0 && settings.LastPreferencesTab < tabs.TabPages.Count)
             {
                 tabs.SelectedIndex = settings.LastPreferencesTab;
@@ -320,6 +424,17 @@ namespace NvdaAddonSync
             {
                 return;
             }
+            var showHotkey = showHideHotkeyTextBox.Text.Trim();
+            var toggleHotkey = toggleSyncHotkeyTextBox.Text.Trim();
+            GlobalHotkeyDefinition parsed;
+            if ((enableGlobalHotkeyCheckBox.Checked && !GlobalHotkeyDefinition.TryParse(showHotkey, out parsed)) ||
+                (enableToggleSyncHotkeyCheckBox.Checked && !GlobalHotkeyDefinition.TryParse(toggleHotkey, out parsed)) ||
+                (enableGlobalHotkeyCheckBox.Checked && enableToggleSyncHotkeyCheckBox.Checked &&
+                    string.Equals(showHotkey, toggleHotkey, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
             settings.DefaultAddonMode = StoredAddonMode(Convert.ToString(addonModeComboBox.SelectedItem));
             settings.SyncNvdaProgramFiles = syncProgramFilesCheckBox.Checked;
             settings.CreateProgramBackups = createProgramBackupsCheckBox.Checked;
@@ -334,6 +449,7 @@ namespace NvdaAddonSync
             settings.StartMinimized = startMinimizedCheckBox.Checked;
             settings.UpdateCheckFrequency = StoredUpdateFrequency(Convert.ToString(updateCheckFrequencyComboBox.SelectedItem));
             settings.InstallUpdatesSilently = installUpdatesSilentlyCheckBox.Checked;
+            settings.PlayStatusSounds = playStatusSoundsCheckBox.Checked;
             settings.LastPreferencesTab = tabs.SelectedIndex;
             if (preferencesChanged != null)
             {
@@ -343,6 +459,10 @@ namespace NvdaAddonSync
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
+            if ((showHideHotkeyTextBox.Focused || toggleSyncHotkeyTextBox.Focused) && e.KeyCode != Keys.Escape)
+            {
+                return;
+            }
             if (e.KeyCode == Keys.Escape)
             {
                 Close();
@@ -359,6 +479,125 @@ namespace NvdaAddonSync
                     e.Handled = true;
                 }
             }
+        }
+
+        private void OnHotkeyKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Tab || e.KeyCode == Keys.Escape || e.KeyCode == Keys.Enter)
+            {
+                return;
+            }
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            if (e.KeyCode == Keys.Delete || e.KeyCode == Keys.Back)
+            {
+                var hotkeyBox = (TextBox)sender;
+                hotkeyBox.Text = string.Empty;
+                if (hotkeyBox == showHideHotkeyTextBox)
+                {
+                    enableGlobalHotkeyCheckBox.Checked = false;
+                }
+                else
+                {
+                    enableToggleSyncHotkeyCheckBox.Checked = false;
+                }
+                return;
+            }
+            if (GlobalHotkeyDefinition.IsModifierOnly(e.KeyData))
+            {
+                return;
+            }
+
+            var text = GlobalHotkeyDefinition.FromKeys(e.KeyData);
+            GlobalHotkeyDefinition definition;
+            if (!GlobalHotkeyDefinition.TryParse(text, out definition))
+            {
+                System.Media.SystemSounds.Beep.Play();
+                return;
+            }
+            ((TextBox)sender).Text = text;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!ValidateEnabledHotkeys())
+            {
+                e.Cancel = true;
+                return;
+            }
+            if (warnBeforeSingleModifierHotkeysCheckBox.Checked &&
+                ((enableGlobalHotkeyCheckBox.Checked && GlobalHotkeyDefinition.IsSingleModifierHotkey(showHideHotkeyTextBox.Text)) ||
+                 (enableToggleSyncHotkeyCheckBox.Checked && GlobalHotkeyDefinition.IsSingleModifierHotkey(toggleSyncHotkeyTextBox.Text))))
+            {
+                bool suppressFuturePrompts;
+                if (!SingleModifierHotkeyConfirmationForm.Ask(this, out suppressFuturePrompts))
+                {
+                    e.Cancel = true;
+                    tabs.SelectedIndex = 3;
+                    if (enableGlobalHotkeyCheckBox.Checked && GlobalHotkeyDefinition.IsSingleModifierHotkey(showHideHotkeyTextBox.Text))
+                    {
+                        showHideHotkeyTextBox.Focus();
+                    }
+                    else
+                    {
+                        toggleSyncHotkeyTextBox.Focus();
+                    }
+                    return;
+                }
+                if (suppressFuturePrompts)
+                {
+                    warnBeforeSingleModifierHotkeysCheckBox.Checked = false;
+                    settings.WarnBeforeSingleModifierHotkeys = false;
+                }
+            }
+            SaveHotkeySettings();
+            ApplyNow();
+            base.OnFormClosing(e);
+        }
+
+        private void SaveHotkeySettings()
+        {
+            settings.EnableGlobalHotkey = enableGlobalHotkeyCheckBox.Checked;
+            settings.ShowHideHotkey = showHideHotkeyTextBox.Text.Trim();
+            settings.WarnBeforeSingleModifierHotkeys = warnBeforeSingleModifierHotkeysCheckBox.Checked;
+            settings.EnableToggleSyncHotkey = enableToggleSyncHotkeyCheckBox.Checked;
+            settings.ToggleSyncHotkey = toggleSyncHotkeyTextBox.Text.Trim();
+        }
+
+        internal void SetAutoSyncChecked(bool enabled)
+        {
+            loading = true;
+            autoSyncCheckBox.Checked = enabled;
+            unavailableSecondaryRetryMinutesNumeric.Enabled = enabled;
+            loading = false;
+        }
+
+        private bool ValidateEnabledHotkeys()
+        {
+            GlobalHotkeyDefinition parsed;
+            if (enableGlobalHotkeyCheckBox.Checked && !GlobalHotkeyDefinition.TryParse(showHideHotkeyTextBox.Text, out parsed))
+            {
+                MessageBox.Show(this, "Choose a valid show/hide hotkey or turn that hotkey off.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabs.SelectedIndex = 3;
+                showHideHotkeyTextBox.Focus();
+                return false;
+            }
+            if (enableToggleSyncHotkeyCheckBox.Checked && !GlobalHotkeyDefinition.TryParse(toggleSyncHotkeyTextBox.Text, out parsed))
+            {
+                MessageBox.Show(this, "Choose a valid toggle sync hotkey or turn that hotkey off.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabs.SelectedIndex = 3;
+                toggleSyncHotkeyTextBox.Focus();
+                return false;
+            }
+            if (enableGlobalHotkeyCheckBox.Checked && enableToggleSyncHotkeyCheckBox.Checked &&
+                string.Equals(showHideHotkeyTextBox.Text.Trim(), toggleSyncHotkeyTextBox.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(this, "The show/hide and toggle sync hotkeys must be different.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabs.SelectedIndex = 3;
+                toggleSyncHotkeyTextBox.Focus();
+                return false;
+            }
+            return true;
         }
 
         private static string DisplayUpdateFrequency(string value)

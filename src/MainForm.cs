@@ -16,6 +16,8 @@ namespace NvdaAddonSync
         private const int PendingAddonRetryMilliseconds = 3000;
         private const int PendingTargetAddonRetryMilliseconds = 30000;
         private const int MaximumAutomaticErrorRetries = 5;
+        private const int ShowHideHotkeyId = 1;
+        private const int ToggleSyncHotkeyId = 2;
 
         private readonly AppSettings settings;
         private readonly SyncEngine syncEngine;
@@ -29,6 +31,7 @@ namespace NvdaAddonSync
         private readonly Button syncButton;
         private readonly Button cancelButton;
         private readonly System.Windows.Forms.Timer updateCheckTimer;
+        private readonly SoundService soundService;
         private readonly EventWaitHandle showEvent;
         private readonly EventWaitHandle closeEvent;
         private readonly EventWaitHandle syncEvent;
@@ -44,7 +47,12 @@ namespace NvdaAddonSync
         private bool automaticFullReconciliationQueued;
         private bool waitingForAddonTransaction;
         private bool lastStartupRegistrationSetting;
+        private bool globalHotkeyRegistered;
+        private bool toggleSyncHotkeyRegistered;
+        private PreferencesForm openPreferencesDialog;
         private string currentStatus;
+        private string configuredGlobalHotkey;
+        private string configuredToggleSyncHotkey;
         private string watchedPrimaryFolder;
         private readonly bool forceStartMinimized;
         private static event Action<string> MainWindowLogMessage;
@@ -69,6 +77,7 @@ namespace NvdaAddonSync
             automaticErrorRetryAttempts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             settings = AppSettings.Load();
+            soundService = new SoundService(AppSettings.AppFolder, AppSettings.SettingsFolder);
             ApplyStartupRegistration(false);
             lastStartupRegistrationSetting = settings.RunAtStartup;
             syncEngine = new SyncEngine();
@@ -224,7 +233,7 @@ namespace NvdaAddonSync
             DetectPrimaryFolder(false);
             ConfigureWatcher();
             ScheduleUpdateChecks();
-            SetStatus("Ready");
+            ConfigureGlobalHotkeys();
             AddLog("Ready.");
 
             Shown += OnShown;
@@ -412,6 +421,8 @@ namespace NvdaAddonSync
             trayIcon.Visible = false;
             trayIcon.Dispose();
             watcher.Dispose();
+            UnregisterGlobalHotkeys();
+            soundService.Dispose();
             syncDebounceTimer.Dispose();
             availabilityTimer.Dispose();
             updateCheckTimer.Dispose();
@@ -642,18 +653,18 @@ namespace NvdaAddonSync
             {
                 watcher.EnableRaisingEvents = false;
                 availabilityTimer.Stop();
-                unavailableSecondaryFolders.Clear();
                 if (!settings.AutoSync)
                 {
                     syncDebounceTimer.Stop();
                     ClearPendingAutomaticWork();
                     waitingForAddonTransaction = false;
                     watchedPrimaryFolder = null;
-                    SetStatus("Ready");
+                    RefreshUnavailableSecondaryFolders(true);
+                    SetStatus("Automatic sync off");
                     return;
                 }
                 availabilityTimer.Interval = settings.UnavailableSecondaryRetryMinutes * 60 * 1000;
-                RefreshUnavailableSecondaryFolders();
+                RefreshUnavailableSecondaryFolders(true);
                 availabilityTimer.Start();
                 var primary = GetPrimaryFolder();
                 if (Directory.Exists(primary))
@@ -996,8 +1007,7 @@ namespace NvdaAddonSync
                     break;
                 }
             }
-            unavailableSecondaryFolders.Clear();
-            unavailableSecondaryFolders.UnionWith(currentlyUnavailable);
+            UpdateUnavailableSecondaryFolders(currentlyUnavailable, true);
             if (reconnected)
             {
                 SyncNow("Reconnected secondary folder available");
@@ -1080,13 +1090,29 @@ namespace NvdaAddonSync
             return unavailable;
         }
 
-        private void RefreshUnavailableSecondaryFolders()
+        private bool RefreshUnavailableSecondaryFolders(bool notify)
         {
-            unavailableSecondaryFolders.Clear();
-            if (settings.AutoSync)
+            return UpdateUnavailableSecondaryFolders(GetUnavailableSecondaryFolders(), notify);
+        }
+
+        private bool UpdateUnavailableSecondaryFolders(HashSet<string> currentlyUnavailable, bool notify)
+        {
+            var newlyUnavailable = false;
+            foreach (var secondary in currentlyUnavailable)
             {
-                unavailableSecondaryFolders.UnionWith(GetUnavailableSecondaryFolders());
+                if (!unavailableSecondaryFolders.Contains(secondary))
+                {
+                    newlyUnavailable = true;
+                    break;
+                }
             }
+            unavailableSecondaryFolders.Clear();
+            unavailableSecondaryFolders.UnionWith(currentlyUnavailable);
+            if (notify && newlyUnavailable)
+            {
+                soundService.SecondaryUnavailable(settings.PlayStatusSounds);
+            }
+            return newlyUnavailable;
         }
 
         private void BrowseForPrimary()
@@ -1355,12 +1381,15 @@ namespace NvdaAddonSync
             syncCancellation = cancellation;
             var automaticOutcomes = new List<AutomaticTargetOutcome>();
             var automaticRetryDelay = 0;
+            var completedNormally = false;
+            var completedWithUnavailableTarget = false;
             try
             {
                 if (!automaticRequest)
                 {
                     SaveSettingsFromControls();
                 }
+                soundService.SyncStarted(settings.PlayStatusSounds);
                 var result = await Task.Factory.StartNew(
                     delegate
                     {
@@ -1440,6 +1469,8 @@ namespace NvdaAddonSync
                 {
                     SetStatus("Ready");
                 }
+                completedNormally = true;
+                completedWithUnavailableTarget = result.UnavailableTargets != 0;
             }
             catch (OperationCanceledException)
             {
@@ -1461,7 +1492,18 @@ namespace NvdaAddonSync
                 }
                 cancellation.Dispose();
                 syncing = false;
-                RefreshUnavailableSecondaryFolders();
+                var newlyUnavailable = RefreshUnavailableSecondaryFolders(false);
+                if (completedNormally)
+                {
+                    if (completedWithUnavailableTarget && newlyUnavailable)
+                    {
+                        soundService.SecondaryUnavailable(settings.PlayStatusSounds);
+                    }
+                    else
+                    {
+                        soundService.SyncCompleted(settings.PlayStatusSounds);
+                    }
+                }
                 FocusLog();
                 if (HasPendingAutomaticWork() && settings.AutoSync)
                 {
@@ -1567,7 +1609,7 @@ namespace NvdaAddonSync
 
         private void OpenPreferences()
         {
-            using (var dialog = new PreferencesForm(settings, delegate
+            var dialog = new PreferencesForm(settings, delegate
             {
                 settings.Save();
                 if (settings.RunAtStartup != lastStartupRegistrationSetting)
@@ -1577,9 +1619,17 @@ namespace NvdaAddonSync
                 }
                 ConfigureWatcher();
                 ScheduleUpdateChecks();
-            }))
+                ConfigureGlobalHotkeys();
+            });
+            openPreferencesDialog = dialog;
+            try
             {
                 dialog.ShowDialog(this);
+            }
+            finally
+            {
+                openPreferencesDialog = null;
+                dialog.Dispose();
             }
         }
 
@@ -1837,6 +1887,106 @@ namespace NvdaAddonSync
             Show();
             WindowState = FormWindowState.Normal;
             Activate();
+        }
+
+        private void ToggleMainWindow()
+        {
+            if (Visible && WindowState != FormWindowState.Minimized)
+            {
+                Hide();
+                return;
+            }
+            ShowMainWindow();
+        }
+
+        private void ConfigureGlobalHotkeys()
+        {
+            ConfigureGlobalHotkey(
+                ShowHideHotkeyId,
+                settings.EnableGlobalHotkey,
+                settings.ShowHideHotkey,
+                "Global show/hide hotkey",
+                ref configuredGlobalHotkey,
+                ref globalHotkeyRegistered);
+            ConfigureGlobalHotkey(
+                ToggleSyncHotkeyId,
+                settings.EnableToggleSyncHotkey,
+                settings.ToggleSyncHotkey,
+                "Global toggle sync hotkey",
+                ref configuredToggleSyncHotkey,
+                ref toggleSyncHotkeyRegistered);
+        }
+
+        private void ConfigureGlobalHotkey(int id, bool enabled, string hotkey, string description, ref string configured, ref bool registered)
+        {
+            var requested = enabled ? (hotkey ?? string.Empty).Trim() : string.Empty;
+            if (string.Equals(requested, configured, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            if (registered && IsHandleCreated)
+            {
+                GlobalHotkeyNativeMethods.UnregisterHotKey(Handle, id);
+            }
+            registered = false;
+            configured = requested;
+            if (requested.Length == 0)
+            {
+                return;
+            }
+
+            GlobalHotkeyDefinition definition;
+            if (!GlobalHotkeyDefinition.TryParse(requested, out definition))
+            {
+                AddLog(description + " is invalid and was not registered: " + requested + ".");
+                return;
+            }
+            registered = GlobalHotkeyNativeMethods.RegisterHotKey(
+                Handle,
+                id,
+                definition.Modifiers | GlobalHotkeyModifiers.NoRepeat,
+                definition.Key);
+            AddLog(registered
+                ? description + " registered: " + requested + "."
+                : description + " is unavailable and was not registered: " + requested + ".");
+        }
+
+        private void UnregisterGlobalHotkeys()
+        {
+            if (IsHandleCreated)
+            {
+                if (globalHotkeyRegistered) GlobalHotkeyNativeMethods.UnregisterHotKey(Handle, ShowHideHotkeyId);
+                if (toggleSyncHotkeyRegistered) GlobalHotkeyNativeMethods.UnregisterHotKey(Handle, ToggleSyncHotkeyId);
+            }
+            globalHotkeyRegistered = false;
+            toggleSyncHotkeyRegistered = false;
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == GlobalHotkeyNativeMethods.HotkeyMessage && message.WParam.ToInt32() == ShowHideHotkeyId)
+            {
+                ToggleMainWindow();
+                return;
+            }
+            if (message.Msg == GlobalHotkeyNativeMethods.HotkeyMessage && message.WParam.ToInt32() == ToggleSyncHotkeyId)
+            {
+                ToggleAutomaticSync();
+                return;
+            }
+            base.WndProc(ref message);
+        }
+
+        private void ToggleAutomaticSync()
+        {
+            settings.AutoSync = !settings.AutoSync;
+            settings.Save();
+            if (openPreferencesDialog != null && !openPreferencesDialog.IsDisposed)
+            {
+                openPreferencesDialog.SetAutoSyncChecked(settings.AutoSync);
+            }
+            ConfigureWatcher();
+            AddLog("Automatic sync " + (settings.AutoSync ? "enabled" : "disabled") + " by global hotkey.");
         }
 
         private void OpenManual()

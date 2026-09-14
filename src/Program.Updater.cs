@@ -101,8 +101,14 @@ namespace NvdaAddonSync
                 }
 
                 var allowedFiles = new[] { "NVDASync.exe", "NvdaAddonSync.exe", "Manual.html", "LICENSE.txt", "Get latest NVDA Sync.url" };
+                var requiredSoundFiles = new[] { SoundService.SyncStartedFileName, SoundService.SyncCompletedFileName, SoundService.SecondaryUnavailableFileName };
                 var stagedFiles = Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly);
-                if (Directory.GetDirectories(source).Length > 0 || stagedFiles.Any(path => !allowedFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)))
+                var stagedDirectories = Directory.GetDirectories(source, "*", SearchOption.TopDirectoryOnly);
+                var stagedSounds = Path.Combine(source, "sounds");
+                if (stagedFiles.Any(path => !allowedFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)) ||
+                    stagedDirectories.Any(path => !string.Equals(path, stagedSounds, StringComparison.OrdinalIgnoreCase)) ||
+                    !Directory.Exists(stagedSounds) ||
+                    Directory.GetDirectories(stagedSounds, "*", SearchOption.AllDirectories).Length != 0)
                 {
                     throw new InvalidOperationException("The signed update contains unexpected files or folders.");
                 }
@@ -110,25 +116,57 @@ namespace NvdaAddonSync
                 {
                     throw new InvalidOperationException("The signed update is incomplete.");
                 }
+                var stagedSoundFiles = Directory.GetFiles(stagedSounds, "*", SearchOption.TopDirectoryOnly);
+                if (stagedSoundFiles.Any(path => !requiredSoundFiles.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)) ||
+                    !requiredSoundFiles.All(name => File.Exists(Path.Combine(stagedSounds, name))))
+                {
+                    throw new InvalidOperationException("The signed update contains unexpected or incomplete sound files.");
+                }
+
+                var stagedItems = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var path in stagedFiles)
+                {
+                    stagedItems.Add(Path.GetFileName(path), path);
+                }
+                foreach (var path in stagedSoundFiles)
+                {
+                    stagedItems.Add(Path.Combine("sounds", Path.GetFileName(path)), path);
+                }
 
                 WriteUpdateHistory(targetDir, "Applying files.");
                 Directory.CreateDirectory(targetDir);
-                foreach (var item in stagedFiles)
+                foreach (var item in stagedItems)
                 {
-                    var name = Path.GetFileName(item);
-                    var destination = Path.Combine(targetDir, name);
-                    if (File.Exists(destination)) File.Copy(destination, Path.Combine(backupStage, name), true);
+                    var destination = Path.Combine(targetDir, item.Key);
+                    if (!File.Exists(destination))
+                    {
+                        continue;
+                    }
+                    var backup = Path.Combine(backupStage, item.Key);
+                    Directory.CreateDirectory(Path.GetDirectoryName(backup));
+                    File.Copy(destination, backup, true);
                 }
                 SaveUpdateBackup(targetDir, backupStage);
-                var newFiles = stagedFiles.Where(item => !File.Exists(Path.Combine(targetDir, Path.GetFileName(item)))).Select(Path.GetFileName).ToList();
+                var newFiles = stagedItems.Keys.Where(relativePath => !File.Exists(Path.Combine(targetDir, relativePath))).ToList();
                 try
                 {
-                    foreach (var item in stagedFiles) CopyFileWithRetry(item, Path.Combine(targetDir, Path.GetFileName(item)));
+                    foreach (var item in stagedItems)
+                    {
+                        var destination = Path.Combine(targetDir, item.Key);
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                        CopyFileWithRetry(item.Value, destination);
+                    }
                 }
                 catch
                 {
                     foreach (var newFile in newFiles) TryDeleteFile(Path.Combine(targetDir, newFile));
-                    foreach (var backup in Directory.GetFiles(backupStage)) CopyFileWithRetry(backup, Path.Combine(targetDir, Path.GetFileName(backup)));
+                    foreach (var backup in Directory.GetFiles(backupStage, "*", SearchOption.AllDirectories))
+                    {
+                        var relativePath = GetRelativePath(backupStage, backup);
+                        var destination = Path.Combine(targetDir, relativePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                        CopyFileWithRetry(backup, destination);
+                    }
                     throw;
                 }
                 TryDeleteFile(Path.Combine(targetDir, "README.md"));
@@ -199,7 +237,7 @@ namespace NvdaAddonSync
 
         private static void SaveUpdateBackup(string targetDir, string backupStage)
         {
-            if (Directory.GetFiles(backupStage).Length == 0) return;
+            if (Directory.GetFiles(backupStage, "*", SearchOption.AllDirectories).Length == 0) return;
             var backups = Path.Combine(targetDir, Path.Combine("Backups", "Updates"));
             Directory.CreateDirectory(backups);
             var archive = Path.Combine(backups, "NVDASync-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip");
@@ -208,6 +246,17 @@ namespace NvdaAddonSync
             {
                 try { File.Delete(old); } catch { }
             }
+        }
+
+        private static string GetRelativePath(string root, string path)
+        {
+            var prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var fullPath = Path.GetFullPath(path);
+            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("An update file is outside its expected staging folder.");
+            }
+            return fullPath.Substring(prefix.Length);
         }
 
         private static string FindUpdateSourceFolder(string stage)
